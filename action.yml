@@ -65,7 +65,7 @@ inputs:
     required: false
     default: "high"
   respect-author-replies:
-    description: "When true, the bot reads replies to its inline comments and dismisses findings whose author's justification is reasonable."
+    description: "When true, the bot dismisses findings when the author resolves the review thread on GitHub or replies to the bot's inline comment."
     required: false
     default: "true"
   ignore-patterns:

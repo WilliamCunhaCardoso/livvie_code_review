@@ -324,7 +324,7 @@ Use `review-instructions-file` (default: `.github/code-reviewer.md`) for project
 | `include-confidences` | no | `low,medium,high` | Comma-separated confidences to include in the review |
 | `request-changes-on` | no | `high` | Comma-separated severities that trigger `REQUEST_CHANGES` |
 | `max-comments` | no | `25` | Max inline comments per review |
-| `respect-author-replies` | no | `true` | When `true`, reads replies to bot inline comments and dismisses findings with reasonable author justifications. **Enabled by default.** |
+| `respect-author-replies` | no | `true` | When `true`, dismisses findings when the author resolves the review thread or replies to the bot's inline comment. **Enabled by default.** |
 | `ignore-patterns` | no | `build/**,dist/**,node_modules/**` | Glob patterns for files to skip |
 | `hotfix-labels` | no | `hotfix,urgent,critical,bugfix` | Labels that identify an urgent bugfix. Triggers a softer, scope-focused review |
 | `hotfix-keywords` | no | `hotfix,urgent,critical,bug fix` | Keywords to scan in the PR title/body for urgent bugfix detection |
@@ -352,18 +352,23 @@ Two levers control cost:
 
 ## Respecting Author Replies
 
-`respect-author-replies` is **enabled by default**. When active, Livvie reads replies to its own inline comments before posting a new review. If an author explains that a requested change does not apply, and the explanation is reasonable, Livvie dismisses that finding and does not re-request it in the next round.
+`respect-author-replies` is **enabled by default**. When active, Livvie dismisses findings in two situations before posting a new review:
 
-How it works:
+1. **Resolved review thread** — the author (or any reviewer) clicks **"Resolve conversation"** on the bot's inline comment thread.
+2. **Author reply** — the author replies directly to the bot's inline comment.
+
+Both actions tell Livvie that the finding should not be re-requested. No LLM judgment is applied to the reply content: any non-empty reply is accepted.
+
+This prevents review loops where the bot keeps re-requesting the same change after the author has already addressed or rejected it.
+
+### How it works
 
 1. Every inline comment Livvie posts contains an invisible marker with a stable finding ID.
-2. On the next run, Livvie fetches replies to those comments.
-3. For each reply, Livvie asks the LLM whether the author's justification is reasonable.
-4. If the LLM agrees, the finding is removed from the new review.
-
-This prevents review loops where the bot keeps re-requesting the same change after the author has already explained why it is not needed.
-
-**Note:** each author reply evaluated costs one additional LLM call.
+2. On the next run, Livvie fetches:
+   - Review threads resolved on GitHub via GraphQL
+   - Replies to its own inline comments via REST
+3. Findings with either signal are removed from the new review.
+4. The review body reports how many findings were dismissed and how to use the feature.
 
 ## Urgent bugfixes
 
@@ -402,14 +407,14 @@ flowchart LR
         C1["Deduplicate<br/>±3 lines"]
         C2["Sort by severity<br/>cap 100"]
     end
-    subgraph REPLIES["Reply Evaluation (optional)"]
-        R1["Fetch replies<br/>to bot comments"]
-        R2["LLM evaluates<br/>author justifications"]
+    subgraph DISMISSAL["Dismissal Signals (optional)"]
+        R1["Fetch resolved threads<br/>via GraphQL"]
+        R2["Fetch replies<br/>to bot comments"]
     end
     subgraph POST["Post"]
         P1["Single review<br/>inline comments<br/>agent breakdown"]
     end
-    FETCH --> BATCH --> REVIEW --> CONSOL --> REPLIES --> POST
+    FETCH --> BATCH --> REVIEW --> CONSOL --> DISMISSAL --> POST
 ```
 
 **Pipeline stages:**
@@ -418,7 +423,7 @@ flowchart LR
 2. **Batching** — files bin-packed into batches by token budget, with cross-file context per batch
 3. **Review** — each batch × each agent = one LLM call (concurrency 3, circuit breaker with optional fallback model)
 4. **Consolidation** — findings deduplicated (same file + ±3 lines = merged), sorted by severity, capped at 100
-4.5. **Reply Evaluation** (when `respect-author-replies` is enabled) — replies to bot comments are fetched and evaluated; reasonable author justifications dismiss the corresponding findings
+4.5. **Dismissal Signals** (when `respect-author-replies` is enabled) — resolved review threads and replies to bot comments are fetched; findings with either signal are removed from the new review
 5. **Post** — single consolidated review with inline comments, agent breakdown table, and pipeline stats
 
 The review event (`REQUEST_CHANGES` or `APPROVE`) is determined by the `request-changes-on` input. Any included finding whose severity is in that list causes the review to become `REQUEST_CHANGES`. If no findings match, the review becomes `APPROVE`. Findings that do not match `request-changes-on` are still posted as inline comments, but do not block the PR. Stale reviews from previous runs are dismissed automatically.
