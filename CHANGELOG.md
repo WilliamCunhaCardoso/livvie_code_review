@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- `hotfix-labels` and `hotfix-keywords` inputs to automatically soften the review focus for urgent bugfixes.
+- Scope hints are injected into review instructions when a PR is identified as a hotfix/urgent bugfix.
+- Fuzzy matching for author replies when a finding ID changes between review rounds.
+- Dismissed findings count is shown in the review body when author replies are accepted.
+
+### Changed
+- `respect-author-replies` now defaults to `true`.
+- Finding IDs are now generated from normalized descriptions, making them stable across LLM rephrasings.
+- Review agents (generalist, security, performance, architecture, code-quality) now include explicit scope-discipline guidance.
+- Reply evaluation prompt now explicitly accepts justifications about PR scope, shared components, and urgent bugfixes.
+
 ## [1.0.0] - 2026-07-10
 
 ### Added

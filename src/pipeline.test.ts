@@ -57,6 +57,8 @@ function makeConfig(overrides: Partial<PipelineConfig> = {}): PipelineConfig {
     maxBatches: 10,
     contextWindow: 128000,
     ignorePatterns: [],
+    hotfixLabels: [],
+    hotfixKeywords: [],
     agentsDir: ".agents",
     agentModelOverrides: new Map(),
     reviewInstructions: "Review this code carefully",
@@ -317,6 +319,8 @@ describe("runPipeline", () => {
       config.requestChangesOn,
       config.maxComments,
       expectedMap,
+      config.respectAuthorReplies,
+      0,
     );
   });
 

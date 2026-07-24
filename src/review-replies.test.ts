@@ -232,6 +232,38 @@ describe("evaluateAuthorReplies", () => {
     expect(result[0].reason).toBe("Valid explanation");
   });
 
+  it("matches reply to a finding by file and line when id changed", async () => {
+    vi.mocked(global.fetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [
+          { message: { content: JSON.stringify({ accepted: true, reason: "Out of scope" }) } },
+        ],
+      }),
+    } as unknown as Response);
+
+    const finding = makeFinding({ id: "new-id-xyz", file: "lib/image_uploader.dart", line: 42 });
+    const replies = [
+      {
+        findingId: "old-id-abc",
+        replyBody:
+          "This `image_uploader.dart:42` finding is about a shared component not changed in this PR.",
+        replyAuthor: "author",
+        originalCommentId: 100,
+        replyCommentId: 101,
+      },
+    ];
+    const result = await evaluateAuthorReplies([finding], replies, {
+      apiKey: "key",
+      baseUrl: "https://api.example.com",
+      model: "model",
+      maxOutputTokens: 1000,
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].findingId).toBe("new-id-xyz");
+  });
+
   it("does not dismiss when LLM rejects justification", async () => {
     vi.mocked(global.fetch).mockResolvedValue({
       ok: true,

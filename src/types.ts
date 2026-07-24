@@ -131,6 +131,8 @@ export interface PipelineConfig {
   maxBatches: number;
   contextWindow: number;
   ignorePatterns: string[];
+  hotfixLabels: string[];
+  hotfixKeywords: string[];
   agentsDir: string;
   agentModelOverrides: Map<string, AgentModelOverrides>;
   reviewInstructions: string;

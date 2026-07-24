@@ -99,7 +99,10 @@ export async function evaluateAuthorReplies(
   const dismissed: DismissedFinding[] = [];
 
   for (const [findingId, findingReplies] of repliesByFindingId.entries()) {
-    const finding = findingById.get(findingId);
+    let finding = findingById.get(findingId);
+    if (!finding) {
+      finding = findFindingByReplyFuzzy(findings, findingId, findingReplies);
+    }
     if (!finding) {
       core.info(`Reply references unknown finding ${findingId}, skipping`);
       continue;
@@ -112,7 +115,7 @@ export async function evaluateAuthorReplies(
     try {
       const evaluation = await evaluateReply(finding, combinedReply, config);
       if (evaluation.accepted) {
-        dismissed.push({ findingId, reason: evaluation.reason });
+        dismissed.push({ findingId: finding.id, reason: evaluation.reason });
         core.info(
           `Finding ${finding.file}:${finding.line} dismissed by author reply: ${evaluation.reason}`,
         );
@@ -127,6 +130,54 @@ export async function evaluateAuthorReplies(
   }
 
   return dismissed;
+}
+
+function findFindingByReplyFuzzy(
+  findings: ReviewFinding[],
+  originalFindingId: string,
+  replies: AuthorReply[],
+): ReviewFinding | undefined {
+  if (findings.length === 0) return undefined;
+
+  const replyBody = replies
+    .map((r) => r.replyBody)
+    .join(" ")
+    .toLowerCase();
+
+  for (const finding of findings) {
+    const bodyHasFile = replyBody.includes(finding.file.toLowerCase().split("/").pop() || "");
+    if (!bodyHasFile) continue;
+
+    const bodyHasLine =
+      replyBody.includes(`:${finding.line}`) || replyBody.includes(` ${finding.line} `);
+    if (!bodyHasLine) continue;
+
+    return finding;
+  }
+
+  const originalFileLine = extractFileLineFromFindingId(originalFindingId, findings);
+  if (originalFileLine) {
+    const candidates = findings.filter(
+      (f) => f.file === originalFileLine.file && Math.abs(f.line - originalFileLine.line) <= 3,
+    );
+    if (candidates.length === 1) {
+      return candidates[0];
+    }
+  }
+
+  return undefined;
+}
+
+function extractFileLineFromFindingId(
+  findingId: string,
+  findings: ReviewFinding[],
+): { file: string; line: number } | undefined {
+  for (const finding of findings) {
+    if (finding.id === findingId) {
+      return { file: finding.file, line: finding.line };
+    }
+  }
+  return undefined;
 }
 
 function groupByFindingId(replies: AuthorReply[]): Map<string, AuthorReply[]> {
@@ -151,7 +202,14 @@ async function evaluateReply(
 ): Promise<ReplyEvaluation> {
   const systemPrompt = `You are a fair and experienced code reviewer. Your job is to evaluate whether an author's response to a requested code change is reasonable and sufficient to dismiss the finding.
 
-Be pragmatic: accept the response if it explains why the change is unnecessary, wrong, or already handled elsewhere. Reject it if the response is evasive, incomplete, or does not actually address the issue.
+Be pragmatic. Accept the response if any of the following is true:
+- The requested change is outside the scope of the PR.
+- The flagged code is a pre-existing shared component and the PR does not meaningfully modify it.
+- The PR is an urgent bugfix or hotfix and the requested change would require refactoring unrelated code.
+- The author explains that the issue is already handled elsewhere, does not apply in this context, or is a known accepted pattern.
+- The author commits to addressing the finding in a follow-up PR with a reasonable justification and timeline.
+
+Reject the response if it is evasive, incomplete, technically incorrect, or does not actually address the issue.
 
 Respond ONLY with a JSON object matching this schema:
 

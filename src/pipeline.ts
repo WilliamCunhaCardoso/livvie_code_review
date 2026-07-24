@@ -177,6 +177,8 @@ export async function runPipeline(
   }
   core.endGroup();
 
+  let dismissedCount = 0;
+
   if (config.respectAuthorReplies && consolidated.findings.length > 0) {
     core.startGroup("Stage 4.5: Author reply evaluation");
     const replies = await fetchAuthorReplies(octokit, config.owner, config.repo, config.pullNumber);
@@ -192,6 +194,7 @@ export async function runPipeline(
 
       if (dismissed.length > 0) {
         const { kept } = filterDismissedFindings(consolidated.findings, dismissed);
+        dismissedCount = consolidated.findings.length - kept.length;
         consolidated = {
           ...consolidated,
           findings: kept,
@@ -221,6 +224,8 @@ export async function runPipeline(
     config.requestChangesOn,
     config.maxComments,
     perspectiveNameMap,
+    config.respectAuthorReplies,
+    dismissedCount,
   );
   core.endGroup();
 

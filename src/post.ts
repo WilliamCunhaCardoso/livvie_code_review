@@ -24,6 +24,8 @@ export async function postReview(
   requestChangesOn: Set<string>,
   maxComments: number,
   perspectiveNameMap: Map<string, string>,
+  respectAuthorReplies: boolean = false,
+  dismissedCount: number = 0,
 ): Promise<number> {
   const { comments, postedFindings } = buildComments(
     consolidated,
@@ -31,7 +33,13 @@ export async function postReview(
     maxComments,
     perspectiveNameMap,
   );
-  const body = buildReviewBody(consolidated, postedFindings, perspectiveNameMap);
+  const body = buildReviewBody(
+    consolidated,
+    postedFindings,
+    perspectiveNameMap,
+    respectAuthorReplies,
+    dismissedCount,
+  );
 
   const hasFindings = consolidated.findings.length > 0;
   const requestChanges =
@@ -213,6 +221,8 @@ export function buildReviewBody(
   consolidated: ConsolidatedReview,
   postedFindings: Set<ReviewFinding>,
   perspectiveNameMap: Map<string, string>,
+  respectAuthorReplies: boolean = false,
+  dismissedCount: number = 0,
 ): string {
   const parts: string[] = [];
 
@@ -227,6 +237,20 @@ export function buildReviewBody(
   if (statParts.length === 0) statParts.push("✅ **No issues found**");
   parts.push(statParts.join(" · "));
   parts.push("");
+
+  if (dismissedCount > 0) {
+    parts.push(
+      `✅ **${dismissedCount} finding${dismissedCount === 1 ? " was" : "s were"} dismissed** based on author replies from a previous review round.`,
+    );
+    parts.push("");
+  }
+
+  if (respectAuthorReplies && consolidated.findings.length > 0) {
+    parts.push(
+      "> 💬 **Disagree with a finding?** Reply directly to the inline comment explaining why the change does not apply. If your justification is reasonable, the bot will dismiss it in the next review round.",
+    );
+    parts.push("");
+  }
 
   if (consolidated.summary) {
     parts.push(consolidated.summary);

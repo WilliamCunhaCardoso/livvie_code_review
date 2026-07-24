@@ -118,6 +118,7 @@ The "line" field must be a line number that exists in the NEW version of the fil
 - Style that matches existing patterns in the same file
 - Suggestions to introduce new patterns or abstractions not in the codebase
 - Issues outside your focus area — if you notice a problem in another reviewer's domain (e.g., you are the Performance Reviewer and see a code quality issue), skip it. Only flag issues within your own focus area.
+- **Pre-existing issues in shared components that the PR does not meaningfully modify.** If the PR touches a shared component (e.g., a widely used widget, utility class, or base repository) only incidentally, focus on the change logic itself, not on pre-existing patterns of that component. Do not request refactoring of shared code as part of an unrelated bugfix or small feature unless the PR genuinely creates a new risk there.
 
 ### Summary field
 Write a brief summary with exactly two parts separated by \`\\n\\n\`:

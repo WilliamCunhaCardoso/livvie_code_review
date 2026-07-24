@@ -100,8 +100,12 @@ jobs:
           include-severities: "low,medium,high"
           include-confidences: "low,medium,high"
           request-changes-on: "high"
-          respect-author-replies: "false"
+          respect-author-replies: "true"
           ignore-patterns: "build/**,dist/**,node_modules/**"
+
+          # Urgent bugfix detection
+          hotfix-labels: "hotfix,urgent,critical,bugfix"
+          hotfix-keywords: "hotfix,urgent,critical,bug fix"
 
           # Debugging
           verbose: "false"
@@ -193,6 +197,7 @@ You are a **General Code Reviewer**. You review code for issues that span multip
 - **Documentation**: missing doc comments for public APIs, misleading comments
 - **Consistency**: inconsistent error handling within the same module
 - **Testing**: obviously untested code paths, testability issues
+- **Scope discipline**: do not request changes to pre-existing shared components unless the PR meaningfully modifies them
 
 Flag anything that a thorough senior developer would notice during a code review.
 ```
@@ -215,6 +220,7 @@ You are a **Security Reviewer**. You review code for security vulnerabilities an
 - **Input validation**: missing sanitization, trusting user input, unsafe deserialization
 - **Crypto**: weak hashing, insecure random, hardcoded IVs
 - **Data exposure**: sensitive data in logs, error messages, or URLs
+- **Scope discipline**: focus on security risks introduced or affected by this PR; do not demand refactoring of shared components for pre-existing issues
 
 Only flag genuine security risks.
 ```
@@ -237,6 +243,7 @@ You are a **Performance Reviewer**. You review code for performance issues and i
 - **Algorithmic complexity**: O(n²) where O(n) is possible, early-exit opportunities
 - **Resource management**: unclosed streams/connections/controllers, missing dispose
 - **Async**: unnecessary awaiting in loops, blocking async operations
+- **Scope discipline**: only flag performance issues in code that this PR changes or directly affects
 
 Only flag performance issues that would have a real impact.
 ```
@@ -258,6 +265,7 @@ You are an **Architecture Reviewer**. You review code for architectural soundnes
 - **Layering**: violations of layer boundaries
 - **SOLID**: single responsibility violations, interface segregation
 - **Abstraction**: missing abstractions, over-abstraction (YAGNI)
+- **Scope discipline**: flag architectural problems introduced by this PR; avoid requesting redesign of shared components unless the PR itself changes them significantly
 
 Only flag architectural issues that would cause real maintenance problems.
 ```
@@ -280,6 +288,7 @@ You are a **Code Quality Reviewer**. You review code for quality, readability, a
 - **DRY violations**: duplicated logic that should be extracted
 - **Error handling**: swallowed exceptions, missing error context
 - **Naming**: inconsistent naming conventions
+- **Scope discipline**: do not flag style or readability issues in pre-existing shared code unless this PR meaningfully changes it
 
 Only flag issues that genuinely harm code quality.
 ```
@@ -315,8 +324,10 @@ Use `review-instructions-file` (default: `.github/code-reviewer.md`) for project
 | `include-confidences` | no | `low,medium,high` | Comma-separated confidences to include in the review |
 | `request-changes-on` | no | `high` | Comma-separated severities that trigger `REQUEST_CHANGES` |
 | `max-comments` | no | `25` | Max inline comments per review |
-| `respect-author-replies` | no | `false` | When `true`, reads replies to bot inline comments and dismisses findings with reasonable author justifications |
+| `respect-author-replies` | no | `true` | When `true`, reads replies to bot inline comments and dismisses findings with reasonable author justifications. **Enabled by default.** |
 | `ignore-patterns` | no | `build/**,dist/**,node_modules/**` | Glob patterns for files to skip |
+| `hotfix-labels` | no | `hotfix,urgent,critical,bugfix` | Labels that identify an urgent bugfix. Triggers a softer, scope-focused review |
+| `hotfix-keywords` | no | `hotfix,urgent,critical,bug fix` | Keywords to scan in the PR title/body for urgent bugfix detection |
 | `max-batches` | no | `0` | Max batches (0 = unlimited). LLM calls = batches × agents |
 | `context-window` | no | `128000` | Model context window in tokens |
 | `verbose` | no | `false` | Log LLM reasoning traces to Actions log |
@@ -341,7 +352,7 @@ Two levers control cost:
 
 ## Respecting Author Replies
 
-When `respect-author-replies: "true"` is set, Livvie reads replies to its own inline comments before posting a new review. If an author explains that a requested change does not apply, and the explanation is reasonable, Livvie dismisses that finding and does not re-request it in the next round.
+`respect-author-replies` is **enabled by default**. When active, Livvie reads replies to its own inline comments before posting a new review. If an author explains that a requested change does not apply, and the explanation is reasonable, Livvie dismisses that finding and does not re-request it in the next round.
 
 How it works:
 
@@ -353,6 +364,13 @@ How it works:
 This prevents review loops where the bot keeps re-requesting the same change after the author has already explained why it is not needed.
 
 **Note:** each author reply evaluated costs one additional LLM call.
+
+## Urgent bugfixes
+
+When a PR is labeled or titled with hotfix indicators (configured via `hotfix-labels` and `hotfix-keywords`), Livvie automatically injects a scope hint into the review instructions. The bot will then focus on regressions and bugs introduced by the change, and will avoid requesting refactoring of pre-existing shared components.
+
+Default hotfix labels: `hotfix`, `urgent`, `critical`, `bugfix`  
+Default hotfix keywords: `hotfix`, `urgent`, `critical`, `bug fix`
 
 ## Supported Providers
 
