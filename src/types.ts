@@ -121,6 +121,7 @@ export interface PipelineConfig {
   pullNumber: number;
   prHeadRef: string;
   prBaseRef: string;
+  prAuthorLogin: string;
   llmApiKey: string;
   llmBaseUrl: string;
   model: string;

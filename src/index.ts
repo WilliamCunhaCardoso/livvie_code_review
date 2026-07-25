@@ -167,6 +167,7 @@ async function run(): Promise<void> {
       pullNumber,
       prHeadRef: context.pull_request?.head?.ref ?? "",
       prBaseRef,
+      prAuthorLogin: context.pull_request?.user?.login ?? "",
       llmApiKey,
       llmBaseUrl,
       model: core.getInput("model", { required: true }),

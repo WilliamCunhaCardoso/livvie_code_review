@@ -8,12 +8,8 @@ vi.mock("@actions/core", () => ({
   endGroup: vi.fn(),
 }));
 
-import {
-  extractFindingId,
-  fetchDismissSignals,
-  applyDismissSignals,
-  findFindingByReplyFuzzy,
-} from "./review-dismissal.js";
+import { extractFindingId } from "./finding-format.js";
+import { fetchDismissSignals, applyDismissSignals } from "./review-dismissal.js";
 import type { ReviewFinding } from "./types.js";
 
 function makeFinding(overrides: Partial<ReviewFinding> = {}): ReviewFinding {
@@ -43,19 +39,22 @@ describe("extractFindingId", () => {
   });
 });
 
-describe("fetchDismissSignals", () => {
-  function makeOctokit(graphqlResult: unknown, restComments: unknown[] = []) {
-    return {
-      graphql: vi.fn().mockResolvedValue(graphqlResult),
-      paginate: vi.fn().mockResolvedValue(restComments),
-      rest: {
-        pulls: {
-          listReviewComments: vi.fn(),
-        },
+function makeOctokit(graphqlResult: unknown, restComments: unknown[] = []) {
+  return {
+    graphql: vi.fn().mockResolvedValue(graphqlResult),
+    paginate: vi.fn().mockResolvedValue(restComments),
+    rest: {
+      pulls: {
+        listReviewComments: vi.fn(),
       },
-    } as unknown as import("@octokit/rest").Octokit;
-  }
+    },
+  } as unknown as import("@octokit/rest").Octokit;
+}
 
+const BOT_LOGIN = "livvie-code-review[bot]";
+const AUTHOR_LOGIN = "author";
+
+describe("fetchDismissSignals", () => {
   it("returns signal for resolved bot thread", async () => {
     const octokit = makeOctokit({
       repository: {
@@ -69,22 +68,23 @@ describe("fetchDismissSignals", () => {
                   nodes: [
                     {
                       body: "Finding body\n\n<!-- livvie:finding-id:abc123 -->",
-                      databaseId: 100,
-                      author: { login: "livvie-code-review[bot]" },
+                      author: { login: BOT_LOGIN },
                     },
                   ],
                 },
               },
             ],
+            pageInfo: { hasNextPage: false, endCursor: null },
           },
         },
       },
     });
 
-    const signals = await fetchDismissSignals(octokit, "owner", "repo", 1);
-    expect(signals).toHaveLength(1);
-    expect(signals[0].findingId).toBe("abc123");
-    expect(signals[0].source).toBe("resolved-thread");
+    const result = await fetchDismissSignals(octokit, "owner", "repo", 1, AUTHOR_LOGIN);
+    expect(result.signals).toHaveLength(1);
+    expect(result.signals[0].findingId).toBe("abc123");
+    expect(result.signals[0].source).toBe("resolved-thread");
+    expect(result.errors).toHaveLength(0);
   });
 
   it("ignores unresolved threads", async () => {
@@ -100,23 +100,23 @@ describe("fetchDismissSignals", () => {
                   nodes: [
                     {
                       body: "<!-- livvie:finding-id:abc123 -->",
-                      databaseId: 100,
-                      author: { login: "livvie-code-review[bot]" },
+                      author: { login: BOT_LOGIN },
                     },
                   ],
                 },
               },
             ],
+            pageInfo: { hasNextPage: false, endCursor: null },
           },
         },
       },
     });
 
-    const signals = await fetchDismissSignals(octokit, "owner", "repo", 1);
-    expect(signals).toHaveLength(0);
+    const result = await fetchDismissSignals(octokit, "owner", "repo", 1, AUTHOR_LOGIN);
+    expect(result.signals).toHaveLength(0);
   });
 
-  it("ignores resolved threads not started by bot", async () => {
+  it("detects bot comment anywhere in thread, not just first", async () => {
     const octokit = makeOctokit({
       repository: {
         pullRequest: {
@@ -129,42 +129,206 @@ describe("fetchDismissSignals", () => {
                   nodes: [
                     {
                       body: "Human reviewer comment",
-                      databaseId: 100,
+                      author: { login: "reviewer" },
+                    },
+                    {
+                      body: "Bot finding\n\n<!-- livvie:finding-id:abc123 -->",
+                      author: { login: BOT_LOGIN },
+                    },
+                    {
+                      body: "Reply to bot",
+                      author: { login: AUTHOR_LOGIN },
+                    },
+                  ],
+                },
+              },
+            ],
+            pageInfo: { hasNextPage: false, endCursor: null },
+          },
+        },
+      },
+    });
+
+    const result = await fetchDismissSignals(octokit, "owner", "repo", 1, AUTHOR_LOGIN);
+    expect(result.signals).toHaveLength(1);
+    expect(result.signals[0].source).toBe("resolved-thread");
+  });
+
+  it("ignores resolved threads with no bot comment", async () => {
+    const octokit = makeOctokit({
+      repository: {
+        pullRequest: {
+          reviewThreads: {
+            nodes: [
+              {
+                id: "thread1",
+                isResolved: true,
+                comments: {
+                  nodes: [
+                    {
+                      body: "Human-only thread",
                       author: { login: "reviewer" },
                     },
                   ],
                 },
               },
             ],
+            pageInfo: { hasNextPage: false, endCursor: null },
           },
         },
       },
     });
 
-    const signals = await fetchDismissSignals(octokit, "owner", "repo", 1);
-    expect(signals).toHaveLength(0);
+    const result = await fetchDismissSignals(octokit, "owner", "repo", 1, AUTHOR_LOGIN);
+    expect(result.signals).toHaveLength(0);
   });
 
   it("returns signal for author reply to bot comment", async () => {
-    const octokit = makeOctokit({ repository: { pullRequest: { reviewThreads: { nodes: [] } } } }, [
+    const octokit = makeOctokit(
       {
-        id: 100,
-        body: "Finding body\n\n<!-- livvie:finding-id:abc123 -->",
-        user: { login: "livvie-code-review[bot]", type: "Bot" },
-        in_reply_to_id: null,
+        repository: {
+          pullRequest: {
+            reviewThreads: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+          },
+        },
       },
-      {
-        id: 101,
-        body: "Please ignore this for now.",
-        user: { login: "author", type: "User" },
-        in_reply_to_id: 100,
-      },
-    ]);
+      [
+        {
+          id: 100,
+          body: "Finding body\n\n<!-- livvie:finding-id:abc123 -->",
+          user: { login: BOT_LOGIN, type: "Bot" },
+          in_reply_to_id: null,
+        },
+        {
+          id: 101,
+          body: "Please ignore this for now.",
+          user: { login: AUTHOR_LOGIN, type: "User" },
+          in_reply_to_id: 100,
+        },
+      ],
+    );
 
-    const signals = await fetchDismissSignals(octokit, "owner", "repo", 1);
-    expect(signals).toHaveLength(1);
-    expect(signals[0].findingId).toBe("abc123");
-    expect(signals[0].source).toBe("author-reply");
+    const result = await fetchDismissSignals(octokit, "owner", "repo", 1, AUTHOR_LOGIN);
+    expect(result.signals).toHaveLength(1);
+    expect(result.signals[0].findingId).toBe("abc123");
+    expect(result.signals[0].source).toBe("author-reply");
+  });
+
+  it("ignores replies from non-author users", async () => {
+    const octokit = makeOctokit(
+      {
+        repository: {
+          pullRequest: {
+            reviewThreads: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+          },
+        },
+      },
+      [
+        {
+          id: 100,
+          body: "<!-- livvie:finding-id:abc123 -->",
+          user: { login: BOT_LOGIN, type: "Bot" },
+          in_reply_to_id: null,
+        },
+        {
+          id: 101,
+          body: "Looks fine to me.",
+          user: { login: "random-reviewer", type: "User" },
+          in_reply_to_id: 100,
+        },
+      ],
+    );
+
+    const result = await fetchDismissSignals(octokit, "owner", "repo", 1, AUTHOR_LOGIN);
+    expect(result.signals).toHaveLength(0);
+  });
+
+  it("ignores very short replies", async () => {
+    const octokit = makeOctokit(
+      {
+        repository: {
+          pullRequest: {
+            reviewThreads: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+          },
+        },
+      },
+      [
+        {
+          id: 100,
+          body: "<!-- livvie:finding-id:abc123 -->",
+          user: { login: BOT_LOGIN, type: "Bot" },
+          in_reply_to_id: null,
+        },
+        {
+          id: 101,
+          body: "ok",
+          user: { login: AUTHOR_LOGIN, type: "User" },
+          in_reply_to_id: 100,
+        },
+      ],
+    );
+
+    const result = await fetchDismissSignals(octokit, "owner", "repo", 1, AUTHOR_LOGIN);
+    expect(result.signals).toHaveLength(0);
+  });
+
+  it("ignores bot replies to bot comments", async () => {
+    const octokit = makeOctokit(
+      {
+        repository: {
+          pullRequest: {
+            reviewThreads: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+          },
+        },
+      },
+      [
+        {
+          id: 100,
+          body: "<!-- livvie:finding-id:abc123 -->",
+          user: { login: BOT_LOGIN, type: "Bot" },
+          in_reply_to_id: null,
+        },
+        {
+          id: 101,
+          body: "Automated bot reply",
+          user: { login: "dependabot[bot]", type: "Bot" },
+          in_reply_to_id: 100,
+        },
+      ],
+    );
+
+    const result = await fetchDismissSignals(octokit, "owner", "repo", 1, AUTHOR_LOGIN);
+    expect(result.signals).toHaveLength(0);
+  });
+
+  it("does not classify human users with 'bot' in name as bots", async () => {
+    const octokit = makeOctokit(
+      {
+        repository: {
+          pullRequest: {
+            reviewThreads: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+          },
+        },
+      },
+      [
+        {
+          id: 100,
+          body: "<!-- livvie:finding-id:abc123 -->",
+          user: { login: BOT_LOGIN, type: "Bot" },
+          in_reply_to_id: null,
+        },
+        {
+          id: 101,
+          body: "Please ignore this finding.",
+          user: { login: AUTHOR_LOGIN, type: "User" },
+          in_reply_to_id: 100,
+        },
+      ],
+    );
+
+    const result = await fetchDismissSignals(octokit, "owner", "repo", 1, AUTHOR_LOGIN);
+    expect(result.signals).toHaveLength(1);
+    expect(result.signals[0].source).toBe("author-reply");
   });
 
   it("deduplicates signals for the same finding", async () => {
@@ -181,13 +345,13 @@ describe("fetchDismissSignals", () => {
                     nodes: [
                       {
                         body: "<!-- livvie:finding-id:abc123 -->",
-                        databaseId: 100,
-                        author: { login: "livvie-code-review[bot]" },
+                        author: { login: BOT_LOGIN },
                       },
                     ],
                   },
                 },
               ],
+              pageInfo: { hasNextPage: false, endCursor: null },
             },
           },
         },
@@ -196,25 +360,111 @@ describe("fetchDismissSignals", () => {
         {
           id: 100,
           body: "<!-- livvie:finding-id:abc123 -->",
-          user: { login: "livvie-code-review[bot]", type: "Bot" },
+          user: { login: BOT_LOGIN, type: "Bot" },
           in_reply_to_id: null,
         },
         {
           id: 101,
-          body: "Please ignore.",
-          user: { login: "author", type: "User" },
+          body: "Please ignore this.",
+          user: { login: AUTHOR_LOGIN, type: "User" },
           in_reply_to_id: 100,
         },
       ],
     );
 
-    const signals = await fetchDismissSignals(octokit, "owner", "repo", 1);
-    expect(signals).toHaveLength(1);
+    const result = await fetchDismissSignals(octokit, "owner", "repo", 1, AUTHOR_LOGIN);
+    expect(result.signals).toHaveLength(1);
   });
 
-  it("returns empty on GraphQL error", async () => {
+  it("returns errors on GraphQL failure but still fetches replies", async () => {
+    const octokit = makeOctokit(
+      {
+        repository: {
+          pullRequest: {
+            reviewThreads: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+          },
+        },
+      },
+      [
+        {
+          id: 100,
+          body: "<!-- livvie:finding-id:abc123 -->",
+          user: { login: BOT_LOGIN, type: "Bot" },
+          in_reply_to_id: null,
+        },
+        {
+          id: 101,
+          body: "Please ignore this finding.",
+          user: { login: AUTHOR_LOGIN, type: "User" },
+          in_reply_to_id: 100,
+        },
+      ],
+    );
+    (octokit as unknown as { graphql: ReturnType<typeof vi.fn> }).graphql = vi
+      .fn()
+      .mockRejectedValue(new Error("GraphQL error"));
+
+    const result = await fetchDismissSignals(octokit, "owner", "repo", 1, AUTHOR_LOGIN);
+    expect(result.signals).toHaveLength(1);
+    expect(result.signals[0].source).toBe("author-reply");
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toContain("resolved-thread fetch failed");
+  });
+
+  it("paginates GraphQL when hasNextPage is true", async () => {
+    let callCount = 0;
     const octokit = {
-      graphql: vi.fn().mockRejectedValue(new Error("GraphQL error")),
+      graphql: vi.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            repository: {
+              pullRequest: {
+                reviewThreads: {
+                  nodes: [
+                    {
+                      id: "thread1",
+                      isResolved: true,
+                      comments: {
+                        nodes: [
+                          {
+                            body: "<!-- livvie:finding-id:abc123 -->",
+                            author: { login: BOT_LOGIN },
+                          },
+                        ],
+                      },
+                    },
+                  ],
+                  pageInfo: { hasNextPage: true, endCursor: "cursor1" },
+                },
+              },
+            },
+          };
+        }
+        return {
+          repository: {
+            pullRequest: {
+              reviewThreads: {
+                nodes: [
+                  {
+                    id: "thread2",
+                    isResolved: true,
+                    comments: {
+                      nodes: [
+                        {
+                          body: "<!-- livvie:finding-id:def456 -->",
+                          author: { login: BOT_LOGIN },
+                        },
+                      ],
+                    },
+                  },
+                ],
+                pageInfo: { hasNextPage: false, endCursor: null },
+              },
+            },
+          },
+        };
+      }),
       paginate: vi.fn().mockResolvedValue([]),
       rest: {
         pulls: {
@@ -223,8 +473,9 @@ describe("fetchDismissSignals", () => {
       },
     } as unknown as import("@octokit/rest").Octokit;
 
-    const signals = await fetchDismissSignals(octokit, "owner", "repo", 1);
-    expect(signals).toHaveLength(0);
+    const result = await fetchDismissSignals(octokit, "owner", "repo", 1, AUTHOR_LOGIN);
+    expect(result.signals).toHaveLength(2);
+    expect(octokit.graphql).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -244,23 +495,5 @@ describe("applyDismissSignals", () => {
     const findings = [makeFinding()];
     const { kept } = applyDismissSignals(findings, []);
     expect(kept).toHaveLength(1);
-  });
-});
-
-describe("findFindingByReplyFuzzy", () => {
-  it("matches finding by file and line in reply body", () => {
-    const finding = makeFinding({ id: "new-id", file: "lib/image_uploader.dart", line: 42 });
-    const replies = [
-      {
-        findingId: "old-id",
-        replyBody: "Please skip `image_uploader.dart:42`.",
-        replyAuthor: "author",
-        originalCommentId: 100,
-        replyCommentId: 101,
-      },
-    ];
-    const matched = findFindingByReplyFuzzy([finding], "old-id", replies);
-    expect(matched).toBeDefined();
-    expect(matched?.id).toBe("new-id");
   });
 });

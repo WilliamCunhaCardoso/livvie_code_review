@@ -177,15 +177,20 @@ export async function runPipeline(
 
   if (config.respectAuthorReplies && consolidated.findings.length > 0) {
     core.startGroup("Stage 4.5: Dismiss resolved or replied findings");
-    const dismissSignals = await fetchDismissSignals(
+    const { signals: dismissSignals, errors: dismissErrors } = await fetchDismissSignals(
       octokit,
       config.owner,
       config.repo,
       config.pullNumber,
+      config.prAuthorLogin,
     );
     core.info(
       `Found ${dismissSignals.length} dismiss signals (resolved threads or author replies)`,
     );
+
+    if (dismissErrors.length > 0) {
+      core.warning(`Dismissal signal fetch had ${dismissErrors.length} error(s)`);
+    }
 
     if (dismissSignals.length > 0) {
       const { kept, dismissed } = applyDismissSignals(consolidated.findings, dismissSignals);

@@ -47,6 +47,7 @@ function makeConfig(overrides: Partial<PipelineConfig> = {}): PipelineConfig {
     pullNumber: 42,
     prHeadRef: "feature",
     prBaseRef: "main",
+    prAuthorLogin: "test-author",
     llmApiKey: "test-api-key",
     llmBaseUrl: "https://api.test.com",
     model: "primary-model",

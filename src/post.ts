@@ -3,9 +3,9 @@ import * as core from "@actions/core";
 import type { ConsolidatedReview, ReviewFinding, ReviewComment, DiffFile } from "./types.js";
 import { isLineInDiff } from "./diff.js";
 import { isSuggestionBalanced } from "./suggestion.js";
+import { FINDING_ID_MARKER } from "./finding-format.js";
 
 const REVIEW_SIGNATURE = "Livvie Code Review";
-export const FINDING_ID_MARKER = "livvie:finding-id";
 
 function resolvePerspectiveNames(
   foundBy: string[],
