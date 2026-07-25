@@ -287,17 +287,6 @@ describe("buildReviewBody", () => {
     expect(body).toContain("✅ **No issues found**");
   });
 
-  it("lists unreviewed files", () => {
-    const consolidated = makeConsolidated({
-      unreviewedFiles: ["lib/broken.dart", "lib/other.dart"],
-    });
-    const nameMap = new Map<string, string>();
-    const body = buildReviewBody(consolidated, new Set(), nameMap);
-    expect(body).toContain("### ⚠️ Unreviewed files");
-    expect(body).toContain("`lib/broken.dart`");
-    expect(body).toContain("`lib/other.dart`");
-  });
-
   it("includes reply instructions when respectAuthorReplies is true and findings exist", () => {
     const consolidated = makeConsolidated({
       findings: [makeFinding()],

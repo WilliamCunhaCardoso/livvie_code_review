@@ -314,18 +314,6 @@ export function buildReviewBody(
     }
   }
 
-  if (consolidated.unreviewedFiles.length > 0) {
-    parts.push("---");
-    parts.push("### ⚠️ Unreviewed files");
-    parts.push("");
-    parts.push("The following files could not be reviewed (LLM calls failed):");
-    parts.push("");
-    for (const f of consolidated.unreviewedFiles) {
-      parts.push(`- \`${f}\``);
-    }
-    parts.push("");
-  }
-
   parts.push("---");
   parts.push(
     `*Batches: ${stats.totalBatches} · Perspectives: ${stats.totalPerspectives} · LLM calls: ${stats.successfulLLMCalls}/${stats.totalLLMCalls}*`,
