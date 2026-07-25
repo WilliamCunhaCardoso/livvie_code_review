@@ -297,6 +297,26 @@ describe("buildReviewBody", () => {
     expect(body).toContain("`lib/broken.dart`");
     expect(body).toContain("`lib/other.dart`");
   });
+
+  it("includes reply instructions when respectAuthorReplies is true and findings exist", () => {
+    const consolidated = makeConsolidated({
+      findings: [makeFinding()],
+      stats: { ...makeConsolidated().stats, totalFindings: 1 },
+    });
+    const nameMap = new Map<string, string>();
+    const body = buildReviewBody(consolidated, new Set([makeFinding()]), nameMap, true, 0);
+    expect(body).toContain("Disagree with a finding?");
+  });
+
+  it("shows dismissed findings count", () => {
+    const consolidated = makeConsolidated({
+      findings: [makeFinding()],
+      stats: { ...makeConsolidated().stats, totalFindings: 1 },
+    });
+    const nameMap = new Map<string, string>();
+    const body = buildReviewBody(consolidated, new Set([makeFinding()]), nameMap, true, 2);
+    expect(body).toContain("2 findings were dismissed");
+  });
 });
 
 describe("postReview", () => {

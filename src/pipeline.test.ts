@@ -47,6 +47,7 @@ function makeConfig(overrides: Partial<PipelineConfig> = {}): PipelineConfig {
     pullNumber: 42,
     prHeadRef: "feature",
     prBaseRef: "main",
+    prAuthorLogin: "test-author",
     llmApiKey: "test-api-key",
     llmBaseUrl: "https://api.test.com",
     model: "primary-model",
@@ -57,6 +58,7 @@ function makeConfig(overrides: Partial<PipelineConfig> = {}): PipelineConfig {
     maxBatches: 10,
     contextWindow: 128000,
     ignorePatterns: [],
+    diffContextLines: 15,
     agentsDir: ".agents",
     agentModelOverrides: new Map(),
     reviewInstructions: "Review this code carefully",
@@ -317,6 +319,8 @@ describe("runPipeline", () => {
       config.requestChangesOn,
       config.maxComments,
       expectedMap,
+      config.respectAuthorReplies,
+      0,
     );
   });
 

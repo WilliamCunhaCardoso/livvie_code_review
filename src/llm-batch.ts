@@ -172,7 +172,13 @@ export function buildBatchUserMessage(batch: Batch, reviewInstructions: string):
 
   for (const file of batch.files) {
     parts.push(`### ${file.filename} (${file.additions}+, ${file.deletions}-)`);
-    parts.push("Full file with line numbers. Lines marked with → were changed in this PR.");
+    if (file.truncated) {
+      parts.push(
+        "Windowed file with line numbers (context around changed lines). Lines marked with \u2192 were changed in this PR.",
+      );
+    } else {
+      parts.push("Full file with line numbers. Lines marked with \u2192 were changed in this PR.");
+    }
     parts.push("");
     parts.push("```");
     parts.push(file.content);

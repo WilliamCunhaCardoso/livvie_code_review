@@ -121,6 +121,7 @@ export interface PipelineConfig {
   pullNumber: number;
   prHeadRef: string;
   prBaseRef: string;
+  prAuthorLogin: string;
   llmApiKey: string;
   llmBaseUrl: string;
   model: string;
@@ -131,6 +132,7 @@ export interface PipelineConfig {
   maxBatches: number;
   contextWindow: number;
   ignorePatterns: string[];
+  diffContextLines: number;
   agentsDir: string;
   agentModelOverrides: Map<string, AgentModelOverrides>;
   reviewInstructions: string;

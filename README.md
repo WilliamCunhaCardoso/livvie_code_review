@@ -100,8 +100,9 @@ jobs:
           include-severities: "low,medium,high"
           include-confidences: "low,medium,high"
           request-changes-on: "high"
-          respect-author-replies: "false"
+          respect-author-replies: "true"
           ignore-patterns: "build/**,dist/**,node_modules/**"
+          diff-context-lines: "15"
 
           # Debugging
           verbose: "false"
@@ -193,6 +194,7 @@ You are a **General Code Reviewer**. You review code for issues that span multip
 - **Documentation**: missing doc comments for public APIs, misleading comments
 - **Consistency**: inconsistent error handling within the same module
 - **Testing**: obviously untested code paths, testability issues
+- **Scope discipline**: do not request changes to pre-existing shared components unless the PR meaningfully modifies them
 
 Flag anything that a thorough senior developer would notice during a code review.
 ```
@@ -215,6 +217,7 @@ You are a **Security Reviewer**. You review code for security vulnerabilities an
 - **Input validation**: missing sanitization, trusting user input, unsafe deserialization
 - **Crypto**: weak hashing, insecure random, hardcoded IVs
 - **Data exposure**: sensitive data in logs, error messages, or URLs
+- **Scope discipline**: focus on security risks introduced or affected by this PR; do not demand refactoring of shared components for pre-existing issues
 
 Only flag genuine security risks.
 ```
@@ -237,6 +240,7 @@ You are a **Performance Reviewer**. You review code for performance issues and i
 - **Algorithmic complexity**: O(n²) where O(n) is possible, early-exit opportunities
 - **Resource management**: unclosed streams/connections/controllers, missing dispose
 - **Async**: unnecessary awaiting in loops, blocking async operations
+- **Scope discipline**: only flag performance issues in code that this PR changes or directly affects
 
 Only flag performance issues that would have a real impact.
 ```
@@ -258,6 +262,7 @@ You are an **Architecture Reviewer**. You review code for architectural soundnes
 - **Layering**: violations of layer boundaries
 - **SOLID**: single responsibility violations, interface segregation
 - **Abstraction**: missing abstractions, over-abstraction (YAGNI)
+- **Scope discipline**: flag architectural problems introduced by this PR; avoid requesting redesign of shared components unless the PR itself changes them significantly
 
 Only flag architectural issues that would cause real maintenance problems.
 ```
@@ -280,6 +285,7 @@ You are a **Code Quality Reviewer**. You review code for quality, readability, a
 - **DRY violations**: duplicated logic that should be extracted
 - **Error handling**: swallowed exceptions, missing error context
 - **Naming**: inconsistent naming conventions
+- **Scope discipline**: do not flag style or readability issues in pre-existing shared code unless this PR meaningfully changes it
 
 Only flag issues that genuinely harm code quality.
 ```
@@ -315,8 +321,9 @@ Use `review-instructions-file` (default: `.github/code-reviewer.md`) for project
 | `include-confidences` | no | `low,medium,high` | Comma-separated confidences to include in the review |
 | `request-changes-on` | no | `high` | Comma-separated severities that trigger `REQUEST_CHANGES` |
 | `max-comments` | no | `25` | Max inline comments per review |
-| `respect-author-replies` | no | `false` | When `true`, reads replies to bot inline comments and dismisses findings with reasonable author justifications |
+| `respect-author-replies` | no | `true` | When `true`, dismisses findings when the author resolves the review thread or replies to the bot's inline comment. **Enabled by default.** |
 | `ignore-patterns` | no | `build/**,dist/**,node_modules/**` | Glob patterns for files to skip |
+| `diff-context-lines` | no | `15` | Lines of context shown around each diff hunk. The LLM sees only the diff plus this window, not the full file. Set to `0` for raw diff only |
 | `max-batches` | no | `0` | Max batches (0 = unlimited). LLM calls = batches × agents |
 | `context-window` | no | `128000` | Model context window in tokens |
 | `verbose` | no | `false` | Log LLM reasoning traces to Actions log |
@@ -341,18 +348,23 @@ Two levers control cost:
 
 ## Respecting Author Replies
 
-When `respect-author-replies: "true"` is set, Livvie reads replies to its own inline comments before posting a new review. If an author explains that a requested change does not apply, and the explanation is reasonable, Livvie dismisses that finding and does not re-request it in the next round.
+`respect-author-replies` is **enabled by default**. When active, Livvie dismisses findings in two situations before posting a new review:
 
-How it works:
+1. **Resolved review thread** — the author (or any reviewer) clicks **"Resolve conversation"** on the bot's inline comment thread.
+2. **Author reply** — the author replies directly to the bot's inline comment.
+
+Both actions tell Livvie that the finding should not be re-requested. No LLM judgment is applied to the reply content: any non-empty reply is accepted.
+
+This prevents review loops where the bot keeps re-requesting the same change after the author has already addressed or rejected it.
+
+### How it works
 
 1. Every inline comment Livvie posts contains an invisible marker with a stable finding ID.
-2. On the next run, Livvie fetches replies to those comments.
-3. For each reply, Livvie asks the LLM whether the author's justification is reasonable.
-4. If the LLM agrees, the finding is removed from the new review.
-
-This prevents review loops where the bot keeps re-requesting the same change after the author has already explained why it is not needed.
-
-**Note:** each author reply evaluated costs one additional LLM call.
+2. On the next run, Livvie fetches:
+   - Review threads resolved on GitHub via GraphQL
+   - Replies to its own inline comments via REST
+3. Findings with either signal are removed from the new review.
+4. The review body reports how many findings were dismissed and how to use the feature.
 
 ## Supported Providers
 
@@ -384,14 +396,14 @@ flowchart LR
         C1["Deduplicate<br/>±3 lines"]
         C2["Sort by severity<br/>cap 100"]
     end
-    subgraph REPLIES["Reply Evaluation (optional)"]
-        R1["Fetch replies<br/>to bot comments"]
-        R2["LLM evaluates<br/>author justifications"]
+    subgraph DISMISSAL["Dismissal Signals (optional)"]
+        R1["Fetch resolved threads<br/>via GraphQL"]
+        R2["Fetch replies<br/>to bot comments"]
     end
     subgraph POST["Post"]
         P1["Single review<br/>inline comments<br/>agent breakdown"]
     end
-    FETCH --> BATCH --> REVIEW --> CONSOL --> REPLIES --> POST
+    FETCH --> BATCH --> REVIEW --> CONSOL --> DISMISSAL --> POST
 ```
 
 **Pipeline stages:**
@@ -400,7 +412,7 @@ flowchart LR
 2. **Batching** — files bin-packed into batches by token budget, with cross-file context per batch
 3. **Review** — each batch × each agent = one LLM call (concurrency 3, circuit breaker with optional fallback model)
 4. **Consolidation** — findings deduplicated (same file + ±3 lines = merged), sorted by severity, capped at 100
-4.5. **Reply Evaluation** (when `respect-author-replies` is enabled) — replies to bot comments are fetched and evaluated; reasonable author justifications dismiss the corresponding findings
+4.5. **Dismissal Signals** (when `respect-author-replies` is enabled) — resolved review threads and replies to bot comments are fetched; findings with either signal are removed from the new review
 5. **Post** — single consolidated review with inline comments, agent breakdown table, and pipeline stats
 
 The review event (`REQUEST_CHANGES` or `APPROVE`) is determined by the `request-changes-on` input. Any included finding whose severity is in that list causes the review to become `REQUEST_CHANGES`. If no findings match, the review becomes `APPROVE`. Findings that do not match `request-changes-on` are still posted as inline comments, but do not block the PR. Stale reviews from previous runs are dismissed automatically.

@@ -8,7 +8,13 @@ vi.mock("@actions/core", () => ({
   endGroup: vi.fn(),
 }));
 
-import { parseReview, normalizeFinding, isValidFinding } from "./llm.js";
+import {
+  parseReview,
+  normalizeFinding,
+  isValidFinding,
+  generateFindingId,
+  normalizeFindingDescription,
+} from "./llm.js";
 import type { ReviewFinding } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -316,5 +322,52 @@ describe("isValidFinding", () => {
     const result = parseReview(input, "perf");
     expect(result.findings).toHaveLength(1);
     expect(result.findings[0].description).toBe("has comma, inside string");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// generateFindingId / normalizeFindingDescription
+// ---------------------------------------------------------------------------
+describe("normalizeFindingDescription", () => {
+  it("removes stop words and punctuation", () => {
+    const normalized = normalizeFindingDescription("The quick brown fox jumps over the lazy dog.");
+    expect(normalized).toBe("brown dog fox jumps lazy quick");
+  });
+
+  it("handles portuguese stop words", () => {
+    const normalized = normalizeFindingDescription(
+      "O componente compartilhado não foi alterado por esta PR.",
+    );
+    expect(normalized).toBe("alterado compartilhado componente");
+  });
+
+  it("sorts tokens for stability", () => {
+    const a = normalizeFindingDescription("Missing null check before access");
+    const b = normalizeFindingDescription("Access before null check is missing");
+    expect(a).toBe(b);
+  });
+});
+
+describe("generateFindingId", () => {
+  it("returns stable id for descriptions with same meaning", () => {
+    const idA = generateFindingId("lib/main.dart", 42, "Missing null check before accessing value");
+    const idB = generateFindingId(
+      "lib/main.dart",
+      42,
+      "The missing null check: before accessing the value",
+    );
+    expect(idA).toBe(idB);
+  });
+
+  it("returns different id for different lines", () => {
+    const idA = generateFindingId("lib/main.dart", 42, "Missing null check");
+    const idB = generateFindingId("lib/main.dart", 43, "Missing null check");
+    expect(idA).not.toBe(idB);
+  });
+
+  it("returns different id for different files", () => {
+    const idA = generateFindingId("lib/a.dart", 42, "Missing null check");
+    const idB = generateFindingId("lib/b.dart", 42, "Missing null check");
+    expect(idA).not.toBe(idB);
   });
 });

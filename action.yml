@@ -65,13 +65,17 @@ inputs:
     required: false
     default: "high"
   respect-author-replies:
-    description: "When true, the bot reads replies to its inline comments and dismisses findings whose author's justification is reasonable."
+    description: "When true, the bot dismisses findings when the author resolves the review thread on GitHub or replies to the bot's inline comment."
     required: false
-    default: "false"
+    default: "true"
   ignore-patterns:
     description: "Comma-separated glob patterns for files to skip (e.g. *.g.dart,build/). Defaults to generated file patterns."
     required: false
     default: "build/**,dist/**,node_modules/**"
+  diff-context-lines:
+    description: "Number of context lines to show around each changed hunk. The LLM sees only the diff plus this window of surrounding context, not the full file. Set to 0 for raw diff only."
+    required: false
+    default: "15"
   max-batches:
     description: "Maximum number of file batches. Each batch is reviewed by every perspective, so total LLM calls = batches × perspectives. 0 = no limit."
     required: false

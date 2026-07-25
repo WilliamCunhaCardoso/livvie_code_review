@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- Fuzzy matching for dismissal signals when a finding ID changes between review rounds.
+- Dismissed findings count is shown in the review body when dismissal signals are present.
+- `diff-context-lines` input to control how many context lines are shown around each diff hunk. The LLM now sees only the diff plus a configurable window of context (default: 15 lines) instead of the full file, preventing findings on pre-existing code outside the PR scope.
+
+### Changed
+- `respect-author-replies` now defaults to `true`.
+- Finding IDs are now generated from normalized descriptions, making them stable across LLM rephrasings.
+- Review agents (generalist, security, performance, architecture, code-quality) now include explicit scope-discipline guidance.
+- Replaced LLM-based reply evaluation with dismissal signals: resolved GitHub review threads and any non-empty author reply now dismiss the finding automatically.
+- The LLM now receives only the diff plus a window of context (configurable via `diff-context-lines`) instead of the full file, keeping reviews focused on the PR's actual scope.
+- Reinforced shared rules to explicitly prohibit flagging pre-existing issues outside the diff.
+
 ## [1.0.0] - 2026-07-10
 
 ### Added

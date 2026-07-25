@@ -144,6 +144,7 @@ async function run(): Promise<void> {
       pullNumber,
       prHeadRef: context.pull_request?.head?.ref ?? "",
       prBaseRef,
+      prAuthorLogin: context.pull_request?.user?.login ?? "",
       llmApiKey,
       llmBaseUrl,
       model: core.getInput("model", { required: true }),
@@ -163,6 +164,11 @@ async function run(): Promise<void> {
       ),
       ignorePatterns: parseIgnorePatterns(
         core.getInput("ignore-patterns") || "build/**,dist/**,node_modules/**",
+      ),
+      diffContextLines: parsePositiveInt(
+        core.getInput("diff-context-lines"),
+        "diff-context-lines",
+        15,
       ),
       agentsDir,
       agentModelOverrides,

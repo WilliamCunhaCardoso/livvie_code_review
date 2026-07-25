@@ -109,15 +109,18 @@ Never include comments of any kind inside the suggestion — no \`//\` comments,
 **CRITICAL — Complete method bodies:** If your suggestion starts with a method signature (e.g., \`void foo() {\`), it MUST include the COMPLETE method body and the closing \`}\`. Never post a partial method — either suggest the entire method or just the specific lines that need changing (with surrounding context).
 
 ### Line numbers
-The "line" field must be a line number that exists in the NEW version of the file (the right side of the diff). You are given the full file content with line numbers prefixed (e.g. \`281:     if (location.id == null) {\`). Use those line numbers to determine the exact \`line\` value.
+The \`line\` field must be a line number that exists in the NEW version of the file (the right side of the diff). You are given the file content with line numbers prefixed (e.g. \`281:     if (location.id == null) {\`). Lines that were added or modified in this PR are marked with \`→\` after the line number (e.g. \`281: →     if (location.id == null) {\`). Use those line numbers to determine the exact \`line\` value.
 
-**CRITICAL: Only flag lines marked with → (the changed lines).** In the full file content, lines that were added or modified in this PR are marked with \`→\` after the line number (e.g. \`281: →     if (location.id == null) {\`). You may use surrounding unmarked lines as CONTEXT for your suggestion, but the \`line\` field must point to a marked line. Never report findings on unmarked lines — those are pre-existing code outside the scope of this PR.
+**CRITICAL: Only flag lines marked with → (the changed lines).** You may use surrounding unmarked lines as CONTEXT for your suggestion, but the \`line\` field must point to a marked line. Never report findings on unmarked lines — those are pre-existing code outside the scope of this PR.
+
+**CRITICAL: Stay within the scope of the diff.** Only report issues that are **introduced or directly caused by** the changed lines. If you notice a pre-existing bug in unmarked code (even a severe one), **do NOT report it** — it is out of scope for this PR. Reporting pre-existing issues in shared components or unrelated methods blocks the PR without reason. If the changed lines call a method that has a pre-existing bug, you may mention it as context, but the \`line\` field must still point to a changed line, and the finding must be about the change itself, not the pre-existing code.
 
 ### What not to flag
 - Import ordering
 - Style that matches existing patterns in the same file
 - Suggestions to introduce new patterns or abstractions not in the codebase
 - Issues outside your focus area — if you notice a problem in another reviewer's domain (e.g., you are the Performance Reviewer and see a code quality issue), skip it. Only flag issues within your own focus area.
+- **Pre-existing issues in shared components that the PR does not meaningfully modify.** If the PR touches a shared component (e.g., a widely used widget, utility class, or base repository) only incidentally, focus on the change logic itself, not on pre-existing patterns of that component. Do not request refactoring of shared code as part of an unrelated bugfix or small feature unless the PR genuinely creates a new risk there.
 
 ### Summary field
 Write a brief summary with exactly two parts separated by \`\\n\\n\`:

@@ -10,11 +10,7 @@ import { createCircuitBreaker } from "./circuit-breaker.js";
 import { reviewBatchFromPerspective, type LLMCallConfig } from "./llm-batch.js";
 import { consolidateReviews } from "./consolidation.js";
 import { postReview } from "./post.js";
-import {
-  fetchAuthorReplies,
-  evaluateAuthorReplies,
-  filterDismissedFindings,
-} from "./review-replies.js";
+import { fetchDismissSignals, applyDismissSignals } from "./review-dismissal.js";
 
 export async function runPipeline(
   config: PipelineConfig,
@@ -83,7 +79,14 @@ export async function runPipeline(
     config.safetyMargin,
     files.length,
   );
-  const batches = createBatches(files, fileContents, tokenBudget, config.maxBatches, failedFiles);
+  const batches = createBatches(
+    files,
+    fileContents,
+    tokenBudget,
+    config.maxBatches,
+    config.diffContextLines,
+    failedFiles,
+  );
   core.info(`Created ${batches.length} batches for ${files.length} files`);
   for (const batch of batches) {
     core.info(
@@ -177,34 +180,40 @@ export async function runPipeline(
   }
   core.endGroup();
 
+  let dismissedCount = 0;
+
   if (config.respectAuthorReplies && consolidated.findings.length > 0) {
-    core.startGroup("Stage 4.5: Author reply evaluation");
-    const replies = await fetchAuthorReplies(octokit, config.owner, config.repo, config.pullNumber);
-    core.info(`Found ${replies.length} author replies to bot comments`);
+    core.startGroup("Stage 4.5: Dismiss resolved or replied findings");
+    const { signals: dismissSignals, errors: dismissErrors } = await fetchDismissSignals(
+      octokit,
+      config.owner,
+      config.repo,
+      config.pullNumber,
+      config.prAuthorLogin,
+    );
+    core.info(
+      `Found ${dismissSignals.length} dismiss signals (resolved threads or author replies)`,
+    );
 
-    if (replies.length > 0) {
-      const dismissed = await evaluateAuthorReplies(consolidated.findings, replies, {
-        apiKey: config.llmApiKey,
-        baseUrl: config.llmBaseUrl,
-        model: config.model,
-        maxOutputTokens: config.maxOutputTokens,
-      });
+    if (dismissErrors.length > 0) {
+      core.warning(`Dismissal signal fetch had ${dismissErrors.length} error(s)`);
+    }
 
-      if (dismissed.length > 0) {
-        const { kept } = filterDismissedFindings(consolidated.findings, dismissed);
-        consolidated = {
-          ...consolidated,
-          findings: kept,
-          stats: {
-            ...consolidated.stats,
-            totalFindings: kept.length,
-            high: kept.filter((f) => f.severity === "high").length,
-            medium: kept.filter((f) => f.severity === "medium").length,
-            low: kept.filter((f) => f.severity === "low").length,
-          },
-        };
-        core.info(`Dismissed ${dismissed.length} findings based on author replies`);
-      }
+    if (dismissSignals.length > 0) {
+      const { kept, dismissed } = applyDismissSignals(consolidated.findings, dismissSignals);
+      dismissedCount = dismissed.length;
+      consolidated = {
+        ...consolidated,
+        findings: kept,
+        stats: {
+          ...consolidated.stats,
+          totalFindings: kept.length,
+          high: kept.filter((f) => f.severity === "high").length,
+          medium: kept.filter((f) => f.severity === "medium").length,
+          low: kept.filter((f) => f.severity === "low").length,
+        },
+      };
+      core.info(`Dismissed ${dismissed.length} findings based on author actions`);
     }
     core.endGroup();
   }
@@ -221,6 +230,8 @@ export async function runPipeline(
     config.requestChangesOn,
     config.maxComments,
     perspectiveNameMap,
+    config.respectAuthorReplies,
+    dismissedCount,
   );
   core.endGroup();
 

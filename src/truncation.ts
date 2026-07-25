@@ -138,7 +138,7 @@ export function truncateToWindow(
   for (const range of merged) {
     if (range.start > currentLineNum) {
       const gap = range.start - currentLineNum;
-      result.push(`// ... (${gap} lines truncated) ...`);
+      result.push(`\u2026 (${gap} ${gap === 1 ? "line" : "lines"} truncated) \u2026`);
       truncated = true;
     }
     for (let num = range.start; num <= range.end; num++) {
@@ -152,7 +152,7 @@ export function truncateToWindow(
 
   if (currentLineNum <= maxLine) {
     const gap = maxLine - currentLineNum + 1;
-    result.push(`// ... (${gap} lines truncated) ...`);
+    result.push(`\u2026 (${gap} ${gap === 1 ? "line" : "lines"} truncated) \u2026`);
     truncated = true;
   }
 
