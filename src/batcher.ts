@@ -1,7 +1,7 @@
 import type { DiffFile, PreparedFile, Batch, TokenBudget } from "./types.js";
 import * as core from "@actions/core";
 import { countTokens } from "./tokenizer.js";
-import { progressiveTruncate } from "./truncation.js";
+import { progressiveTruncate, truncateToWindow } from "./truncation.js";
 import { buildCrossFileContext } from "./cross-file.js";
 
 function getDirectory(filename: string): string {
@@ -26,6 +26,7 @@ export function prepareFiles(
   files: DiffFile[],
   fileContents: Map<string, string>,
   tokenBudget: TokenBudget,
+  diffContextLines: number,
 ): PreparedFile[] {
   const prepared: PreparedFile[] = [];
 
@@ -34,7 +35,11 @@ export function prepareFiles(
     let content = rawContent;
     let truncated = false;
 
-    if (content && countTokens(content) > tokenBudget.fileBudget) {
+    if (diffContextLines > 0 && content && file.patch) {
+      const windowed = truncateToWindow(content, file.patch, diffContextLines);
+      content = windowed.content;
+      truncated = true;
+    } else if (content && countTokens(content) > tokenBudget.fileBudget) {
       const result = progressiveTruncate(content, file.patch, tokenBudget.fileBudget);
       content = result.content;
       truncated = true;
@@ -150,10 +155,11 @@ export function createBatches(
   fileContents: Map<string, string>,
   tokenBudget: TokenBudget,
   maxBatches: number,
+  diffContextLines: number,
   failedFiles: string[] = [],
 ): Batch[] {
   const unreviewableFiles: string[] = [...failedFiles];
-  const prepared = prepareFiles(files, fileContents, tokenBudget);
+  const prepared = prepareFiles(files, fileContents, tokenBudget, diffContextLines);
   const batches = binPackFiles(prepared, tokenBudget, maxBatches, unreviewableFiles);
   assignCrossFileContext(batches, tokenBudget);
   return batches;

@@ -5,7 +5,6 @@ import { runPipeline } from "./pipeline.js";
 import type { PipelineConfig } from "./types.js";
 import { parseIgnorePatterns } from "./ignore-patterns.js";
 import { loadAgents } from "./agent-loader.js";
-import { parseHotfixList, buildScopeHint } from "./scope-hints.js";
 
 function parsePositiveInt(value: string, name: string, defaultValue: number): number {
   const parsed = parseInt(value || String(defaultValue), 10);
@@ -127,28 +126,6 @@ async function run(): Promise<void> {
       reviewInstructionsFile,
     );
 
-    const prContext = {
-      title: context.pull_request?.title ?? "",
-      body: context.pull_request?.body ?? "",
-      labels: Array.isArray(context.pull_request?.labels)
-        ? context.pull_request.labels
-            .map((label: { name?: string }) => label.name ?? "")
-            .filter((name: string) => name.length > 0)
-        : [],
-    };
-
-    const hotfixLabels = parseHotfixList(
-      core.getInput("hotfix-labels") || "hotfix,urgent,critical,bugfix",
-    );
-    const hotfixKeywords = parseHotfixList(
-      core.getInput("hotfix-keywords") || "hotfix,urgent,critical,bug fix",
-    );
-    const scopeHint = buildScopeHint(prContext, hotfixLabels, hotfixKeywords);
-
-    const combinedReviewInstructions = scopeHint
-      ? `${reviewInstructions.trim()}\n\n${scopeHint}`.trim()
-      : reviewInstructions;
-
     const { perspectives, agentModelOverrides } = await loadAgents(
       octokit,
       owner,
@@ -188,9 +165,14 @@ async function run(): Promise<void> {
       ignorePatterns: parseIgnorePatterns(
         core.getInput("ignore-patterns") || "build/**,dist/**,node_modules/**",
       ),
+      diffContextLines: parsePositiveInt(
+        core.getInput("diff-context-lines"),
+        "diff-context-lines",
+        15,
+      ),
       agentsDir,
       agentModelOverrides,
-      reviewInstructions: combinedReviewInstructions,
+      reviewInstructions,
       includeSeverities: parseLevelList(core.getInput("include-severities"), "include-severities"),
       includeConfidences: parseLevelList(
         core.getInput("include-confidences"),
@@ -217,8 +199,6 @@ async function run(): Promise<void> {
         "circuit-breaker-threshold",
         3,
       ),
-      hotfixLabels,
-      hotfixKeywords,
     };
 
     core.info(`Reviewing PR #${pullNumber} in ${owner}/${repo}`);

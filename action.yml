@@ -72,14 +72,10 @@ inputs:
     description: "Comma-separated glob patterns for files to skip (e.g. *.g.dart,build/). Defaults to generated file patterns."
     required: false
     default: "build/**,dist/**,node_modules/**"
-  hotfix-labels:
-    description: "Comma-separated labels that indicate an urgent bugfix. When matched, the review focuses on regressions and bugs introduced by the change."
+  diff-context-lines:
+    description: "Number of context lines to show around each changed hunk. The LLM sees only the diff plus this window of surrounding context, not the full file. Set to 0 for raw diff only."
     required: false
-    default: "hotfix,urgent,critical,bugfix"
-  hotfix-keywords:
-    description: "Comma-separated keywords to look for in the PR title and body that indicate an urgent bugfix."
-    required: false
-    default: "hotfix,urgent,critical,bug fix"
+    default: "15"
   max-batches:
     description: "Maximum number of file batches. Each batch is reviewed by every perspective, so total LLM calls = batches × perspectives. 0 = no limit."
     required: false

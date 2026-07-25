@@ -102,10 +102,7 @@ jobs:
           request-changes-on: "high"
           respect-author-replies: "true"
           ignore-patterns: "build/**,dist/**,node_modules/**"
-
-          # Urgent bugfix detection
-          hotfix-labels: "hotfix,urgent,critical,bugfix"
-          hotfix-keywords: "hotfix,urgent,critical,bug fix"
+          diff-context-lines: "15"
 
           # Debugging
           verbose: "false"
@@ -326,8 +323,7 @@ Use `review-instructions-file` (default: `.github/code-reviewer.md`) for project
 | `max-comments` | no | `25` | Max inline comments per review |
 | `respect-author-replies` | no | `true` | When `true`, dismisses findings when the author resolves the review thread or replies to the bot's inline comment. **Enabled by default.** |
 | `ignore-patterns` | no | `build/**,dist/**,node_modules/**` | Glob patterns for files to skip |
-| `hotfix-labels` | no | `hotfix,urgent,critical,bugfix` | Labels that identify an urgent bugfix. Triggers a softer, scope-focused review |
-| `hotfix-keywords` | no | `hotfix,urgent,critical,bug fix` | Keywords to scan in the PR title/body for urgent bugfix detection |
+| `diff-context-lines` | no | `15` | Lines of context shown around each diff hunk. The LLM sees only the diff plus this window, not the full file. Set to `0` for raw diff only |
 | `max-batches` | no | `0` | Max batches (0 = unlimited). LLM calls = batches × agents |
 | `context-window` | no | `128000` | Model context window in tokens |
 | `verbose` | no | `false` | Log LLM reasoning traces to Actions log |
@@ -369,13 +365,6 @@ This prevents review loops where the bot keeps re-requesting the same change aft
    - Replies to its own inline comments via REST
 3. Findings with either signal are removed from the new review.
 4. The review body reports how many findings were dismissed and how to use the feature.
-
-## Urgent bugfixes
-
-When a PR is labeled or titled with hotfix indicators (configured via `hotfix-labels` and `hotfix-keywords`), Livvie automatically injects a scope hint into the review instructions. The bot will then focus on regressions and bugs introduced by the change, and will avoid requesting refactoring of pre-existing shared components.
-
-Default hotfix labels: `hotfix`, `urgent`, `critical`, `bugfix`  
-Default hotfix keywords: `hotfix`, `urgent`, `critical`, `bug fix`
 
 ## Supported Providers
 
