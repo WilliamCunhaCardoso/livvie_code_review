@@ -1,7 +1,7 @@
 import type { DiffFile, PreparedFile, Batch, TokenBudget } from "./types.js";
 import * as core from "@actions/core";
 import { countTokens } from "./tokenizer.js";
-import { progressiveTruncate, truncateToWindow } from "./truncation.js";
+import { progressiveTruncate, truncateToWindow, truncateTextToBudget } from "./truncation.js";
 import { buildCrossFileContext } from "./cross-file.js";
 
 function getDirectory(filename: string): string {
@@ -13,7 +13,13 @@ function getDirectory(filename: string): string {
 function formatFileSection(file: PreparedFile): string {
   const parts: string[] = [];
   parts.push(`### ${file.filename} (${file.additions}+, ${file.deletions}-)`);
-  parts.push("Full file with line numbers. Lines marked with \u2192 were changed in this PR.");
+  if (file.truncated) {
+    parts.push(
+      "Windowed file with line numbers (context around changed lines). Lines marked with \u2192 were changed in this PR.",
+    );
+  } else {
+    parts.push("Full file with line numbers. Lines marked with \u2192 were changed in this PR.");
+  }
   parts.push("");
   parts.push("```");
   parts.push(file.content);
@@ -35,10 +41,23 @@ export function prepareFiles(
     let content = rawContent;
     let truncated = false;
 
-    if (diffContextLines > 0 && content && file.patch) {
+    if (diffContextLines === 0 && file.patch) {
+      content = file.patch;
+      truncated = false;
+      if (countTokens(content) > tokenBudget.fileBudget) {
+        const result = truncateTextToBudget(content, tokenBudget.fileBudget);
+        content = result.content;
+        truncated = true;
+      }
+    } else if (diffContextLines > 0 && content && file.patch) {
       const windowed = truncateToWindow(content, file.patch, diffContextLines);
       content = windowed.content;
-      truncated = true;
+      truncated = windowed.truncated;
+      if (content && countTokens(content) > tokenBudget.fileBudget) {
+        const result = progressiveTruncate(content, file.patch, tokenBudget.fileBudget);
+        content = result.content;
+        truncated = true;
+      }
     } else if (content && countTokens(content) > tokenBudget.fileBudget) {
       const result = progressiveTruncate(content, file.patch, tokenBudget.fileBudget);
       content = result.content;

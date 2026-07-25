@@ -20,6 +20,14 @@ vi.mock("./truncation.js", () => ({
     content: content.substring(0, 100),
     truncated: true,
   })),
+  truncateToWindow: vi.fn((content: string, _patch: string, _windowLines: number) => ({
+    content: content,
+    truncated: false,
+  })),
+  truncateTextToBudget: vi.fn((content: string, _budget: number) => ({
+    content: content.substring(0, 100),
+    truncated: true,
+  })),
 }));
 
 // Mock cross-file context builder
@@ -56,15 +64,15 @@ function makeBudget(overrides?: Partial<TokenBudget>): TokenBudget {
 }
 
 describe("prepareFiles", () => {
-  it("returns PreparedFile with correct fields", () => {
+  it("returns PreparedFile with correct fields when diffContextLines is 0", () => {
     const files = [makeFile("src/main.dart", "void main() {}")];
     const contents = new Map([["src/main.dart", "void main() {}"]]);
     const budget = makeBudget();
 
-    const result = prepareFiles(files, contents, budget);
+    const result = prepareFiles(files, contents, budget, 0);
     expect(result).toHaveLength(1);
     expect(result[0].filename).toBe("src/main.dart");
-    expect(result[0].content).toBe("void main() {}");
+    expect(result[0].content).toBe(files[0].patch);
     expect(result[0].additions).toBe(1);
     expect(result[0].deletions).toBe(1);
     expect(result[0].directory).toBe("src");
@@ -77,19 +85,58 @@ describe("prepareFiles", () => {
     const contents = new Map<string, string>();
     const budget = makeBudget();
 
-    const result = prepareFiles(files, contents, budget);
+    const result = prepareFiles(files, contents, budget, 0);
     expect(result).toHaveLength(1);
-    expect(result[0].content).toBe("");
+    expect(result[0].content).toBe(files[0].patch);
   });
 
-  it("truncates files exceeding token budget", () => {
-    const bigContent = "x".repeat(1000); // ~250 tokens
-    const files = [makeFile("src/big.dart", bigContent)];
-    const contents = new Map([["src/big.dart", bigContent]]);
-    // Set fileBudget very low to trigger truncation
+  it("truncates files exceeding token budget when diffContextLines is 0", () => {
+    const bigPatch = "+x".repeat(1000);
+    const files: DiffFile[] = [
+      {
+        filename: "src/big.dart",
+        patch: `@@ -1,1 +1,1 @@\n${bigPatch}`,
+        additions: 1,
+        deletions: 1,
+      },
+    ];
+    const contents = new Map([["src/big.dart", "x".repeat(1000)]]);
     const budget = makeBudget({ fileBudget: 10 });
 
-    const result = prepareFiles(files, contents, budget);
+    const result = prepareFiles(files, contents, budget, 0);
+    expect(result).toHaveLength(1);
+    expect(result[0].truncated).toBe(true);
+    expect(result[0].content.length).toBeLessThan(bigPatch.length);
+  });
+  it("applies truncateToWindow when diffContextLines > 0", () => {
+    const files = [makeFile("src/main.dart", "void main() {}")];
+    const contents = new Map([["src/main.dart", "void main() {}"]]);
+    const budget = makeBudget();
+
+    const result = prepareFiles(files, contents, budget, 15);
+    expect(result).toHaveLength(1);
+    expect(result[0].content).toBe("void main() {}");
+    expect(result[0].truncated).toBe(false);
+  });
+
+  it("uses raw patch as content when diffContextLines === 0", () => {
+    const files = [makeFile("src/main.dart", "void main() {}")];
+    const contents = new Map([["src/main.dart", "void main() {}"]]);
+    const budget = makeBudget();
+
+    const result = prepareFiles(files, contents, budget, 0);
+    expect(result).toHaveLength(1);
+    expect(result[0].content).toBe(files[0].patch);
+    expect(result[0].truncated).toBe(false);
+  });
+
+  it("falls back to progressiveTruncate when windowed content exceeds budget", () => {
+    const bigContent = "x".repeat(1000);
+    const files = [makeFile("src/big.dart", bigContent)];
+    const contents = new Map([["src/big.dart", bigContent]]);
+    const budget = makeBudget({ fileBudget: 10 });
+
+    const result = prepareFiles(files, contents, budget, 15);
     expect(result).toHaveLength(1);
     expect(result[0].truncated).toBe(true);
     expect(result[0].content.length).toBeLessThan(bigContent.length);
@@ -363,7 +410,7 @@ describe("createBatches", () => {
     ]);
     const budget = makeBudget();
 
-    const batches = createBatches(files, contents, budget, 0);
+    const batches = createBatches(files, contents, budget, 0, 0);
     expect(batches.length).toBeGreaterThan(0);
     expect(batches[0].files.length).toBeGreaterThan(0);
     expect(batches[0].crossFileContext).toBe("cross-file-context");
