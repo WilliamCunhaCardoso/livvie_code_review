@@ -295,6 +295,7 @@ describe("buildReviewBody", () => {
     const nameMap = new Map<string, string>();
     const body = buildReviewBody(consolidated, new Set([makeFinding()]), nameMap, true, 0);
     expect(body).toContain("Disagree with a finding?");
+    expect(body).toContain("Resolve conversation");
   });
 
   it("shows dismissed findings count", () => {

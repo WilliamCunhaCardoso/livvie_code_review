@@ -247,7 +247,7 @@ export function buildReviewBody(
 
   if (respectAuthorReplies && consolidated.findings.length > 0) {
     parts.push(
-      "> 💬 **Disagree with a finding?** Reply directly to the inline comment explaining why the change does not apply. If your justification is reasonable, the bot will dismiss it in the next review round.",
+      '> 💬 **Disagree with a finding?** Reply to this comment or click "Resolve conversation" — the bot will dismiss it in the next review round.',
     );
     parts.push("");
   }
