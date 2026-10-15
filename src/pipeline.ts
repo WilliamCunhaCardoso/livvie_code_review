@@ -220,6 +220,7 @@ export async function runPipeline(
 
   core.startGroup("Stage 5: Post");
   const perspectiveNameMap = new Map(perspectives.map((p) => [p.id, p.name]));
+  const selfAuthored = await detectSelfAuthored(octokit, config.prAuthorLogin);
   const reviewId = await postReview(
     octokit,
     config.owner,
@@ -232,8 +233,34 @@ export async function runPipeline(
     perspectiveNameMap,
     config.respectAuthorReplies,
     dismissedCount,
+    selfAuthored,
   );
   core.endGroup();
 
   return { reviewId, findingCount: consolidated.findings.length };
+}
+
+/**
+ * Detects whether the authenticated token belongs to the PR author. When it
+ * does, GitHub rejects APPROVE/REQUEST_CHANGES ("Can not approve your own pull
+ * request"), so the review must be posted as COMMENT instead.
+ */
+async function detectSelfAuthored(
+  octokit: InstanceType<typeof Octokit>,
+  prAuthorLogin: string,
+): Promise<boolean> {
+  if (!prAuthorLogin) return false;
+  try {
+    const { data: authenticated } = await octokit.rest.users.getAuthenticated();
+    const selfAuthored = authenticated.login.toLowerCase() === prAuthorLogin.toLowerCase();
+    if (selfAuthored) {
+      core.info(
+        `PR author @${prAuthorLogin} is the authenticated identity — review will be posted as COMMENT.`,
+      );
+    }
+    return selfAuthored;
+  } catch (error) {
+    core.warning(`Could not determine the authenticated user: ${error}`);
+    return false;
+  }
 }

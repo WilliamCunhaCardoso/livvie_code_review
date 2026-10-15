@@ -10,6 +10,8 @@ import {
   shouldRetryWithoutInline,
   calculateStartLine,
   postReview,
+  resolveReviewEvent,
+  isSelfApprovalError,
 } from "./post.js";
 import { isSuggestionBalanced } from "./suggestion.js";
 import { isLineInDiff } from "./diff.js";
@@ -459,5 +461,170 @@ describe("postReview", () => {
       (octokit as unknown as { rest: { pulls: { createReview: ReturnType<typeof vi.fn> } } }).rest
         .pulls.createReview,
     ).toHaveBeenCalledWith(expect.objectContaining({ event: "APPROVE" }));
+  });
+});
+
+describe("resolveReviewEvent", () => {
+  it("returns APPROVE for a non-self-authored PR without request-changes findings", () => {
+    expect(resolveReviewEvent(false, false)).toBe("APPROVE");
+  });
+
+  it("returns REQUEST_CHANGES when severity matches requestChangesOn", () => {
+    expect(resolveReviewEvent(true, false)).toBe("REQUEST_CHANGES");
+  });
+
+  it("downgrades to COMMENT when the PR is self-authored (approve case)", () => {
+    // GitHub rejects APPROVE on your own PR with 422 "Can not approve your
+    // own pull request" — happens when the review bot posts to PRs authored
+    // by the same identity the bot runs as (e.g. auto-generated PRs).
+    expect(resolveReviewEvent(false, true)).toBe("COMMENT");
+  });
+
+  it("downgrades to COMMENT when the PR is self-authored (request-changes case)", () => {
+    expect(resolveReviewEvent(true, true)).toBe("COMMENT");
+  });
+});
+
+describe("isSelfApprovalError", () => {
+  it("detects the 422 self-approval rejection", () => {
+    const error = Object.assign(new Error("Review Can not approve your own pull request"), {
+      status: 422,
+    });
+    expect(isSelfApprovalError(error)).toBe(true);
+  });
+
+  it("detects the request-changes variant", () => {
+    const error = Object.assign(new Error("Can not request changes on your own pull request"), {
+      status: 422,
+    });
+    expect(isSelfApprovalError(error)).toBe(true);
+  });
+
+  it("returns false for other 422 errors", () => {
+    const error = Object.assign(new Error("position not in diff"), { status: 422 });
+    expect(isSelfApprovalError(error)).toBe(false);
+  });
+
+  it("returns false for non-422 errors", () => {
+    expect(isSelfApprovalError(new Error("boom"))).toBe(false);
+  });
+});
+
+describe("postReview self-authored handling", () => {
+  function makeOctokit() {
+    return {
+      rest: {
+        pulls: {
+          createReview: vi.fn().mockResolvedValue({ data: { id: 42 } }),
+          listReviews: vi.fn().mockResolvedValue({ data: [] }),
+          dismissReview: vi.fn(),
+          listCommentsForReview: vi.fn().mockResolvedValue({ data: [] }),
+          deleteReviewComment: vi.fn(),
+          updateReview: vi.fn(),
+        },
+      },
+      paginate: vi.fn().mockResolvedValue([]),
+    } as unknown as import("@octokit/rest").Octokit;
+  }
+
+  it("posts a COMMENT review when selfAuthored is true", async () => {
+    const octokit = makeOctokit();
+    const consolidated = makeConsolidated();
+    const files = [makeDiffFile("lib/main.dart")];
+    const nameMap = new Map<string, string>();
+
+    await postReview(
+      octokit,
+      "owner",
+      "repo",
+      1,
+      consolidated,
+      files,
+      new Set(["high"]),
+      10,
+      nameMap,
+      false,
+      0,
+      true,
+    );
+
+    const createReview = (
+      octokit as unknown as { rest: { pulls: { createReview: ReturnType<typeof vi.fn> } } }
+    ).rest.pulls.createReview;
+    expect(createReview).toHaveBeenCalledWith(expect.objectContaining({ event: "COMMENT" }));
+  });
+
+  it("adds the self-authored note to the review body", async () => {
+    const octokit = makeOctokit();
+    const consolidated = makeConsolidated();
+    const files = [makeDiffFile("lib/main.dart")];
+    const nameMap = new Map<string, string>();
+
+    await postReview(
+      octokit,
+      "owner",
+      "repo",
+      1,
+      consolidated,
+      files,
+      new Set(["high"]),
+      10,
+      nameMap,
+      false,
+      0,
+      true,
+    );
+
+    const createReview = (
+      octokit as unknown as { rest: { pulls: { createReview: ReturnType<typeof vi.fn> } } }
+    ).rest.pulls.createReview;
+    const call = createReview.mock.calls[0][0] as { body: string };
+    expect(call.body).toContain("same identity");
+  });
+
+  it("retries as COMMENT when GitHub rejects the approval with a self-approval 422", async () => {
+    const octokit = makeOctokit();
+    const createReview = (
+      octokit as unknown as { rest: { pulls: { createReview: ReturnType<typeof vi.fn> } } }
+    ).rest.pulls.createReview;
+    createReview.mockRejectedValueOnce(
+      Object.assign(new Error("Review Can not approve your own pull request"), { status: 422 }),
+    );
+    const consolidated = makeConsolidated();
+    const files = [makeDiffFile("lib/main.dart")];
+    const nameMap = new Map<string, string>();
+
+    await postReview(
+      octokit,
+      "owner",
+      "repo",
+      1,
+      consolidated,
+      files,
+      new Set(["high"]),
+      10,
+      nameMap,
+    );
+
+    expect(createReview).toHaveBeenCalledTimes(2);
+    expect(createReview.mock.calls[0][0]).toEqual(expect.objectContaining({ event: "APPROVE" }));
+    expect(createReview.mock.calls[1][0]).toEqual(expect.objectContaining({ event: "COMMENT" }));
+  });
+
+  it("does not retry as COMMENT when the failure is unrelated", async () => {
+    const octokit = makeOctokit();
+    const createReview = (
+      octokit as unknown as { rest: { pulls: { createReview: ReturnType<typeof vi.fn> } } }
+    ).rest.pulls.createReview;
+    createReview.mockRejectedValue(new Error("network down"));
+    const consolidated = makeConsolidated();
+    const files = [makeDiffFile("lib/main.dart")];
+    const nameMap = new Map<string, string>();
+
+    await expect(
+      postReview(octokit, "owner", "repo", 1, consolidated, files, new Set(["high"]), 10, nameMap),
+    ).rejects.toThrow("network down");
+
+    expect(createReview).toHaveBeenCalledTimes(1);
   });
 });

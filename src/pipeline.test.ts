@@ -4,7 +4,13 @@ vi.mock("@actions/core");
 vi.mock("@octokit/rest", () => {
   return {
     Octokit: class MockOctokit {
-      constructor() {}
+      /** Static so tests can control getAuthenticated() per test case. */
+      static authenticatedLogin = "";
+      rest = {
+        users: {
+          getAuthenticated: async () => ({ data: { login: MockOctokit.authenticatedLogin } }),
+        },
+      };
     },
   };
 });
@@ -321,6 +327,85 @@ describe("runPipeline", () => {
       expectedMap,
       config.respectAuthorReplies,
       0,
+      false,
+    );
+  });
+
+  it("passes selfAuthored=false to postReview when the token is not the PR author", async () => {
+    const config = makeConfig();
+    const perspectives = [makePerspective("security", "Security Expert")];
+    const keptFiles = [makeDiffFile("lib/main.dart")];
+    const batches = [makeBatch(0, ["lib/main.dart"])];
+    const consolidated = makeConsolidated();
+
+    vi.mocked(fetchDiff).mockResolvedValue(keptFiles);
+    vi.mocked(filterIgnoredFiles).mockReturnValue({ kept: keptFiles, ignored: [] });
+    vi.mocked(createBatches).mockReturnValue(batches);
+    vi.mocked(reviewBatchFromPerspective).mockResolvedValue(
+      makeBatchResult(0, "security", "Security Expert"),
+    );
+    vi.mocked(consolidateReviews).mockReturnValue(consolidated);
+    vi.mocked(postReview).mockResolvedValue(100);
+
+    const { Octokit } = (await import("@octokit/rest")) as unknown as {
+      Octokit: { authenticatedLogin: string };
+    };
+    Octokit.authenticatedLogin = "someone-else";
+
+    await runPipeline(config, perspectives);
+
+    expect(postReview).toHaveBeenLastCalledWith(
+      expect.anything(),
+      config.owner,
+      config.repo,
+      config.pullNumber,
+      consolidated,
+      keptFiles,
+      config.requestChangesOn,
+      config.maxComments,
+      new Map([["security", "Security Expert"]]),
+      config.respectAuthorReplies,
+      0,
+      false,
+    );
+  });
+
+  it("passes selfAuthored=true to postReview when the token IS the PR author", async () => {
+    const config = makeConfig();
+    const perspectives = [makePerspective("security", "Security Expert")];
+    const keptFiles = [makeDiffFile("lib/main.dart")];
+    const batches = [makeBatch(0, ["lib/main.dart"])];
+    const consolidated = makeConsolidated();
+
+    vi.mocked(fetchDiff).mockResolvedValue(keptFiles);
+    vi.mocked(filterIgnoredFiles).mockReturnValue({ kept: keptFiles, ignored: [] });
+    vi.mocked(createBatches).mockReturnValue(batches);
+    vi.mocked(reviewBatchFromPerspective).mockResolvedValue(
+      makeBatchResult(0, "security", "Security Expert"),
+    );
+    vi.mocked(consolidateReviews).mockReturnValue(consolidated);
+    vi.mocked(postReview).mockResolvedValue(100);
+
+    const { Octokit } = (await import("@octokit/rest")) as unknown as {
+      Octokit: { authenticatedLogin: string };
+    };
+    Octokit.authenticatedLogin = "test-author";
+
+    await runPipeline(config, perspectives);
+
+    expect(postReview).toHaveBeenLastCalledWith(
+      expect.anything(),
+      config.owner,
+      config.repo,
+      config.pullNumber,
+      consolidated,
+      keptFiles,
+      config.requestChangesOn,
+      config.maxComments,
+      new Map([["security", "Security Expert"]]),
+      config.respectAuthorReplies,
+      0,
+      true,
     );
   });
 

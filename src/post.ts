@@ -7,6 +7,34 @@ import { FINDING_ID_MARKER } from "./finding-format.js";
 
 const REVIEW_SIGNATURE = "Livvie Code Review";
 
+export type ReviewEvent = "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
+
+/**
+ * GitHub rejects both APPROVE and REQUEST_CHANGES when the review is posted by
+ * the same identity that authored the PR (422 "Can not approve your own pull
+ * request"). This happens for auto-generated PRs authored by the bot itself
+ * (e.g. ci-metrics-aggregate). COMMENT reviews are allowed on your own PR, so
+ * self-authored reviews degrade to COMMENT — findings are still posted inline.
+ */
+export function resolveReviewEvent(requestChanges: boolean, selfAuthored: boolean): ReviewEvent {
+  if (selfAuthored) {
+    core.warning(
+      "PR is authored by the same identity the review bot runs as — posting COMMENT instead of APPROVE/REQUEST_CHANGES (GitHub rejects self-approval).",
+    );
+    return "COMMENT";
+  }
+  return requestChanges ? "REQUEST_CHANGES" : "APPROVE";
+}
+
+/** Detects the 422 GitHub returns when a token reviews its own PR. */
+export function isSelfApprovalError(error: unknown): boolean {
+  const err = error as Record<string, unknown> | undefined;
+  if (err?.status !== 422) return false;
+  const response = err.response as Record<string, unknown> | undefined;
+  const details = JSON.stringify(response?.data || err?.message || "");
+  return /own pull request/i.test(details);
+}
+
 function resolvePerspectiveNames(
   foundBy: string[],
   perspectiveNameMap: Map<string, string>,
@@ -26,6 +54,7 @@ export async function postReview(
   perspectiveNameMap: Map<string, string>,
   respectAuthorReplies: boolean = false,
   dismissedCount: number = 0,
+  selfAuthored: boolean = false,
 ): Promise<number> {
   const { comments, postedFindings } = buildComments(
     consolidated,
@@ -39,12 +68,13 @@ export async function postReview(
     perspectiveNameMap,
     respectAuthorReplies,
     dismissedCount,
+    selfAuthored,
   );
 
   const hasFindings = consolidated.findings.length > 0;
   const requestChanges =
     hasFindings && consolidated.findings.some((f) => requestChangesOn.has(f.severity));
-  const event = requestChanges ? "REQUEST_CHANGES" : "APPROVE";
+  const event = resolveReviewEvent(requestChanges, selfAuthored);
 
   core.info(`Posting ${event} review with ${comments.length} inline comments...`);
 
@@ -92,6 +122,20 @@ export async function postReview(
         });
         reviewId = response.data.id;
       }
+    } else if (isSelfApprovalError(error)) {
+      // Belt-and-braces: if identity detection missed (or GitHub rejects for
+      // another ownership reason), degrade to a COMMENT review instead of
+      // failing the whole workflow.
+      core.warning("GitHub rejected the review event as self-approval; retrying as COMMENT...");
+      const response = await octokit.rest.pulls.createReview({
+        owner,
+        repo,
+        pull_number: pullNumber,
+        body,
+        event: "COMMENT",
+        comments,
+      });
+      reviewId = response.data.id;
     } else {
       throw error;
     }
@@ -223,11 +267,19 @@ export function buildReviewBody(
   perspectiveNameMap: Map<string, string>,
   respectAuthorReplies: boolean = false,
   dismissedCount: number = 0,
+  selfAuthored: boolean = false,
 ): string {
   const parts: string[] = [];
 
   parts.push(`## ${REVIEW_SIGNATURE}`);
   parts.push("");
+
+  if (selfAuthored) {
+    parts.push(
+      "> ℹ️ This PR is authored by the same identity the review bot runs as, so GitHub does not allow it to approve or request changes here. Findings are posted as comments instead.",
+    );
+    parts.push("");
+  }
 
   const { stats } = consolidated;
   const statParts: string[] = [];
