@@ -11,7 +11,9 @@ const SUBMIT_AS_VALUES: readonly SubmitAs[] = ["auto", "approve", "comment"];
 function parseSubmitAs(value: string, name = "submit-as"): SubmitAs {
   const normalized = (value || "auto").trim().toLowerCase();
   if (!SUBMIT_AS_VALUES.includes(normalized as SubmitAs)) {
-    throw new Error(`Invalid value for ${name}: "${value}". Must be one of: ${SUBMIT_AS_VALUES.join(", ")}.`);
+    throw new Error(
+      `Invalid value for ${name}: "${value}". Must be one of: ${SUBMIT_AS_VALUES.join(", ")}.`,
+    );
   }
   return normalized as SubmitAs;
 }
@@ -33,7 +35,9 @@ async function detectSelfAuthored(
     return response.data.login === prAuthor;
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
-    core.warning(`Could not resolve authenticated user ("${message}") — assuming not self-authored`);
+    core.warning(
+      `Could not resolve authenticated user ("${message}") — assuming not self-authored`,
+    );
     return false;
   }
 }

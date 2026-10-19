@@ -1,6 +1,12 @@
 import { Octokit } from "@octokit/rest";
 import * as core from "@actions/core";
-import type { ConsolidatedReview, ReviewFinding, ReviewComment, DiffFile, SubmitAs } from "./types.js";
+import type {
+  ConsolidatedReview,
+  ReviewFinding,
+  ReviewComment,
+  DiffFile,
+  SubmitAs,
+} from "./types.js";
 import { isLineInDiff } from "./diff.js";
 import { isSuggestionBalanced } from "./suggestion.js";
 import { FINDING_ID_MARKER } from "./finding-format.js";
