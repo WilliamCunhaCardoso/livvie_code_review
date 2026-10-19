@@ -48,6 +48,10 @@ inputs:
     description: "(Deprecated) Use request-changes-on instead."
     required: false
     default: "false"
+  submit-as:
+    description: "Review submission event. auto: normal behavior, but degrades to COMMENT on self-authored PRs (GitHub rejects APPROVE/REQUEST_CHANGES from the PR author with 422). approve: legacy behavior regardless of authorship. comment: always COMMENT."
+    required: false
+    default: "auto"
   max-comments:
     description: "Maximum inline comments to post."
     required: false

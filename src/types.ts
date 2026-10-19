@@ -1,3 +1,6 @@
+/** Review submission event policy for postReview. */
+export type SubmitAs = "auto" | "approve" | "comment";
+
 export interface DiffFile {
   filename: string;
   patch: string;
@@ -141,6 +144,8 @@ export interface PipelineConfig {
   requestChangesOn: Set<"low" | "medium" | "high">;
   maxComments: number;
   respectAuthorReplies: boolean;
+  submitAs: SubmitAs;
+  selfAuthored: boolean;
   fetchConcurrency: number;
   llmConcurrency: number;
   safetyMargin: number;

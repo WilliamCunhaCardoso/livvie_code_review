@@ -2,9 +2,41 @@ import * as core from "@actions/core";
 import * as fs from "fs";
 import { Octokit } from "@octokit/rest";
 import { runPipeline } from "./pipeline.js";
-import type { PipelineConfig } from "./types.js";
+import type { PipelineConfig, SubmitAs } from "./types.js";
 import { parseIgnorePatterns } from "./ignore-patterns.js";
 import { loadAgents } from "./agent-loader.js";
+
+const SUBMIT_AS_VALUES: readonly SubmitAs[] = ["auto", "approve", "comment"];
+
+function parseSubmitAs(value: string, name = "submit-as"): SubmitAs {
+  const normalized = (value || "auto").trim().toLowerCase();
+  if (!SUBMIT_AS_VALUES.includes(normalized as SubmitAs)) {
+    throw new Error(`Invalid value for ${name}: "${value}". Must be one of: ${SUBMIT_AS_VALUES.join(", ")}.`);
+  }
+  return normalized as SubmitAs;
+}
+
+/**
+ * A review submitted by the PR's own author is rejected by GitHub with 422
+ * for APPROVE and REQUEST_CHANGES ("Can not approve your own pull request").
+ * Common case: the bot account that opens nightly automation PRs is the same
+ * account whose token runs this review. Compare the PR author against the
+ * authenticated user so resolveReviewEvent can degrade to COMMENT.
+ */
+async function detectSelfAuthored(
+  octokit: Octokit,
+  prAuthor: string | undefined,
+): Promise<boolean> {
+  if (!prAuthor) return false;
+  try {
+    const response = await octokit.rest.users.getAuthenticated();
+    return response.data.login === prAuthor;
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    core.warning(`Could not resolve authenticated user ("${message}") — assuming not self-authored`);
+    return false;
+  }
+}
 
 function parsePositiveInt(value: string, name: string, defaultValue: number): number {
   const parsed = parseInt(value || String(defaultValue), 10);
@@ -181,6 +213,8 @@ async function run(): Promise<void> {
       requestChangesOn: parseLevelList(core.getInput("request-changes-on"), "request-changes-on"),
       maxComments: parsePositiveInt(core.getInput("max-comments"), "max-comments", 25),
       respectAuthorReplies: core.getInput("respect-author-replies") === "true",
+      submitAs: parseSubmitAs(core.getInput("submit-as")),
+      selfAuthored: await detectSelfAuthored(octokit, context.pull_request?.user?.login),
       fetchConcurrency: 5,
       llmConcurrency: 3,
       safetyMargin: parsePositiveInt(core.getInput("safety-margin"), "safety-margin", 500),

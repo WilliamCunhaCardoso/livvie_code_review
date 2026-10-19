@@ -232,6 +232,7 @@ export async function runPipeline(
     perspectiveNameMap,
     config.respectAuthorReplies,
     dismissedCount,
+    { submitAs: config.submitAs, selfAuthored: config.selfAuthored },
   );
   core.endGroup();
 

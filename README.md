@@ -101,6 +101,7 @@ jobs:
           include-confidences: "low,medium,high"
           request-changes-on: "high"
           respect-author-replies: "true"
+          submit-as: "auto"
           ignore-patterns: "build/**,dist/**,node_modules/**"
           diff-context-lines: "15"
 
@@ -322,6 +323,7 @@ Use `review-instructions-file` (default: `.github/code-reviewer.md`) for project
 | `request-changes-on` | no | `high` | Comma-separated severities that trigger `REQUEST_CHANGES` |
 | `max-comments` | no | `25` | Max inline comments per review |
 | `respect-author-replies` | no | `true` | When `true`, dismisses findings when the author resolves the review thread or replies to the bot's inline comment. **Enabled by default.** |
+| `submit-as` | no | `auto` | Review submission event. `auto`: normal behavior, but degrades to `COMMENT` on self-authored PRs (GitHub rejects `APPROVE`/`REQUEST_CHANGES` from the PR author with 422 — typical for bot accounts that open automation PRs with their own token). `approve`: legacy behavior regardless of authorship. `comment`: always `COMMENT`. |
 | `ignore-patterns` | no | `build/**,dist/**,node_modules/**` | Glob patterns for files to skip |
 | `diff-context-lines` | no | `15` | Lines of context shown around each diff hunk. The LLM sees only the diff plus this window, not the full file. Set to `0` for raw diff only |
 | `max-batches` | no | `0` | Max batches (0 = unlimited). LLM calls = batches × agents |

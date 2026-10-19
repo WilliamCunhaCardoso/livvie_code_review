@@ -461,3 +461,156 @@ describe("postReview", () => {
     ).toHaveBeenCalledWith(expect.objectContaining({ event: "APPROVE" }));
   });
 });
+
+describe("postReview submit-as (self-authored PRs)", () => {
+  function makeOctokit() {
+    return {
+      rest: {
+        pulls: {
+          createReview: vi.fn().mockResolvedValue({ data: { id: 42 } }),
+          listReviews: vi.fn().mockResolvedValue({ data: [] }),
+          dismissReview: vi.fn(),
+          listCommentsForReview: vi.fn().mockResolvedValue({ data: [] }),
+          deleteReviewComment: vi.fn(),
+          updateReview: vi.fn(),
+        },
+      },
+      paginate: vi.fn().mockResolvedValue([]),
+    } as unknown as import("@octokit/rest").Octokit;
+  }
+
+  function makeHighSeverityConsolidated(): ConsolidatedReview {
+    const finding = makeFinding({ severity: "high", foundBy: ["security"] });
+    return makeConsolidated({
+      findings: [finding],
+      stats: {
+        totalFindings: 1,
+        high: 1,
+        medium: 0,
+        low: 0,
+        totalBatches: 1,
+        totalPerspectives: 1,
+        totalLLMCalls: 1,
+        successfulLLMCalls: 1,
+        failedBatches: 0,
+      },
+    });
+  }
+
+  it("auto + self-authored downgrades APPROVE to COMMENT (GitHub 422 otherwise)", async () => {
+    const octokit = makeOctokit();
+
+    await postReview(
+      octokit,
+      "owner",
+      "repo",
+      1,
+      makeHighSeverityConsolidated(),
+      [makeDiffFile("lib/main.dart")],
+      new Set<string>(),
+      10,
+      new Map<string, string>(),
+      false,
+      0,
+      { submitAs: "auto", selfAuthored: true },
+    );
+
+    expect(
+      (octokit as unknown as { rest: { pulls: { createReview: ReturnType<typeof vi.fn> } } }).rest
+        .pulls.createReview,
+    ).toHaveBeenCalledWith(expect.objectContaining({ event: "COMMENT" }));
+  });
+
+  it("auto + self-authored downgrades REQUEST_CHANGES to COMMENT too", async () => {
+    const octokit = makeOctokit();
+
+    await postReview(
+      octokit,
+      "owner",
+      "repo",
+      1,
+      makeHighSeverityConsolidated(),
+      [makeDiffFile("lib/main.dart")],
+      new Set(["high"]),
+      10,
+      new Map<string, string>(),
+      false,
+      0,
+      { submitAs: "auto", selfAuthored: true },
+    );
+
+    expect(
+      (octokit as unknown as { rest: { pulls: { createReview: ReturnType<typeof vi.fn> } } }).rest
+        .pulls.createReview,
+    ).toHaveBeenCalledWith(expect.objectContaining({ event: "COMMENT" }));
+  });
+
+  it("auto + not self-authored keeps normal behavior (REQUEST_CHANGES on high)", async () => {
+    const octokit = makeOctokit();
+
+    await postReview(
+      octokit,
+      "owner",
+      "repo",
+      1,
+      makeHighSeverityConsolidated(),
+      [makeDiffFile("lib/main.dart")],
+      new Set(["high"]),
+      10,
+      new Map<string, string>(),
+      false,
+      0,
+      { submitAs: "auto", selfAuthored: false },
+    );
+
+    expect(
+      (octokit as unknown as { rest: { pulls: { createReview: ReturnType<typeof vi.fn> } } }).rest
+        .pulls.createReview,
+    ).toHaveBeenCalledWith(expect.objectContaining({ event: "REQUEST_CHANGES" }));
+  });
+
+  it("comment forces COMMENT regardless of findings or authorship", async () => {
+    const octokit = makeOctokit();
+
+    await postReview(
+      octokit,
+      "owner",
+      "repo",
+      1,
+      makeHighSeverityConsolidated(),
+      [makeDiffFile("lib/main.dart")],
+      new Set(["high"]),
+      10,
+      new Map<string, string>(),
+      false,
+      0,
+      { submitAs: "comment" },
+    );
+
+    expect(
+      (octokit as unknown as { rest: { pulls: { createReview: ReturnType<typeof vi.fn> } } }).rest
+        .pulls.createReview,
+    ).toHaveBeenCalledWith(expect.objectContaining({ event: "COMMENT" }));
+  });
+
+  it("no options keeps legacy behavior (APPROVE)", async () => {
+    const octokit = makeOctokit();
+
+    await postReview(
+      octokit,
+      "owner",
+      "repo",
+      1,
+      makeHighSeverityConsolidated(),
+      [makeDiffFile("lib/main.dart")],
+      new Set<string>(),
+      10,
+      new Map<string, string>(),
+    );
+
+    expect(
+      (octokit as unknown as { rest: { pulls: { createReview: ReturnType<typeof vi.fn> } } }).rest
+        .pulls.createReview,
+    ).toHaveBeenCalledWith(expect.objectContaining({ event: "APPROVE" }));
+  });
+});

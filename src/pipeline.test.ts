@@ -66,6 +66,9 @@ function makeConfig(overrides: Partial<PipelineConfig> = {}): PipelineConfig {
     includeConfidences: new Set(["low", "medium", "high"]),
     requestChangesOn: new Set(["high"]),
     maxComments: 10,
+    respectAuthorReplies: false,
+    submitAs: "auto",
+    selfAuthored: false,
     fetchConcurrency: 5,
     llmConcurrency: 3,
     safetyMargin: 500,
@@ -321,6 +324,10 @@ describe("runPipeline", () => {
       expectedMap,
       config.respectAuthorReplies,
       0,
+      {
+        submitAs: "auto",
+        selfAuthored: false,
+      },
     );
   });
 

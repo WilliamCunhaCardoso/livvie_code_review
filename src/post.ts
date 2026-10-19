@@ -1,11 +1,37 @@
 import { Octokit } from "@octokit/rest";
 import * as core from "@actions/core";
-import type { ConsolidatedReview, ReviewFinding, ReviewComment, DiffFile } from "./types.js";
+import type { ConsolidatedReview, ReviewFinding, ReviewComment, DiffFile, SubmitAs } from "./types.js";
 import { isLineInDiff } from "./diff.js";
 import { isSuggestionBalanced } from "./suggestion.js";
 import { FINDING_ID_MARKER } from "./finding-format.js";
 
 const REVIEW_SIGNATURE = "Livvie Code Review";
+
+export type { SubmitAs };
+export type ReviewEvent = "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
+
+/**
+ * Resolves the review submission event.
+ *
+ * GitHub rejects APPROVE and REQUEST_CHANGES posted by the PR's own author
+ * (422 "Can not approve your own pull request") — the bot that opens nightly
+ * automation PRs is often the same account that runs the review. Self-authored
+ * PRs must always degrade to COMMENT so the review (including inline comments)
+ * still gets posted instead of failing wholesale.
+ *
+ * - submitAs "comment": always COMMENT (explicit override).
+ * - submitAs "auto": COMMENT only when selfAuthored; otherwise legacy behavior.
+ * - submitAs "approve": legacy behavior regardless of authorship.
+ */
+export function resolveReviewEvent(
+  requestChanges: boolean,
+  submitAs: SubmitAs = "auto",
+  selfAuthored = false,
+): ReviewEvent {
+  if (submitAs === "comment") return "COMMENT";
+  if (submitAs === "auto" && selfAuthored) return "COMMENT";
+  return requestChanges ? "REQUEST_CHANGES" : "APPROVE";
+}
 
 function resolvePerspectiveNames(
   foundBy: string[],
@@ -26,6 +52,7 @@ export async function postReview(
   perspectiveNameMap: Map<string, string>,
   respectAuthorReplies: boolean = false,
   dismissedCount: number = 0,
+  options: { submitAs?: SubmitAs; selfAuthored?: boolean } = {},
 ): Promise<number> {
   const { comments, postedFindings } = buildComments(
     consolidated,
@@ -44,7 +71,7 @@ export async function postReview(
   const hasFindings = consolidated.findings.length > 0;
   const requestChanges =
     hasFindings && consolidated.findings.some((f) => requestChangesOn.has(f.severity));
-  const event = requestChanges ? "REQUEST_CHANGES" : "APPROVE";
+  const event = resolveReviewEvent(requestChanges, options.submitAs, options.selfAuthored);
 
   core.info(`Posting ${event} review with ${comments.length} inline comments...`);
 
